@@ -1,2 +1,6 @@
 *.pt
 __pycache__/
+
+# Ignore YOLO model weights
+yolo11n.pt
+yolo11x-pose.pt
