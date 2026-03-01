@@ -1,0 +1,26 @@
+# Environment (secrets — never commit)
+.env
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# Model weights (download separately)
+*.pt
+
+# Data and outputs
+data/
+runs/
+Ultralytics/
