@@ -94,7 +94,7 @@ for epoch in range(1, NUM_EPOCHS + 1):
         preds = logits.argmax(dim=1)
         train_correct += (preds == y_batch).sum().item()
         train_total   += y_batch.size(0)
-
+        
     # Validate
     model.eval()
     val_loss, val_correct, val_total = 0.0, 0, 0

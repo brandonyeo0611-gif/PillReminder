@@ -12,7 +12,7 @@ USAGE (called automatically by realtime_inference.py):
 
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_PATH = "data/carewatch.db"
 
@@ -36,6 +36,15 @@ class ActivityLogger:
                     minute      INTEGER NOT NULL,
                     activity    TEXT    NOT NULL,
                     confidence  REAL    NOT NULL
+                )
+            """)
+            # Live status table stores the most recent predicted activity for quick polling
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS live_status (
+                    person_id  TEXT PRIMARY KEY,
+                    timestamp  TEXT    NOT NULL,
+                    activity   TEXT    NOT NULL,
+                    confidence REAL    NOT NULL
                 )
             """)
             conn.commit()
@@ -70,6 +79,37 @@ class ActivityLogger:
                 ORDER BY timestamp ASC
             """, (person_id, today)).fetchall()
         return [dict(r) for r in rows]
+
+    def get_recent_minutes(self, minutes: int = 10, person_id: str = "resident") -> list[dict]:
+        """Return all logs within the last `minutes` minutes for a person."""
+        cutoff = datetime.now() - timedelta(minutes=minutes)
+        cutoff_iso = cutoff.isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("""
+                SELECT * FROM activity_log
+                WHERE person_id = ? AND timestamp >= ?
+                ORDER BY timestamp ASC
+            """, (person_id, cutoff_iso)).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_live_status(self, activity: str, confidence: float, person_id: str = "resident"):
+        """Insert or update the live status row for quick polling by dashboards.
+
+        This is intended to be called frequently (e.g., once per second) without
+        polluting the activity_log history.
+        """
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO live_status (person_id, timestamp, activity, confidence)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(person_id) DO UPDATE SET
+                  timestamp=excluded.timestamp,
+                  activity=excluded.activity,
+                  confidence=excluded.confidence
+            """, (person_id, now, activity, round(confidence, 4)))
+            conn.commit()
 
     def get_last_n_days(self, n: int = 7, person_id: str = "resident") -> list[dict]:
         """Return all logs for the last n days."""

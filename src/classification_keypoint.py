@@ -25,7 +25,7 @@ import torch.nn as nn
 # 13:left_knee      14:right_knee
 # 15:left_ankle     16:right_ankle
 
-LABELS = ["sitting", "eating", "walking", "pill_taking", "lying_down", "no_person", "fallen"]
+LABELS = ["drinking_water", "eating", "walking", "sitting_down"]
 NUM_ANGLE_FEATURES = 12   # see AngleFeatureExtractor.angle_triplets
 SEQUENCE_LENGTH    = 30   # frames per classification window (~1 second at 30fps)
 
@@ -173,7 +173,14 @@ def load_and_preprocess(
 
     # Encode labels
     le = LabelEncoder()
-    le.fit(LABELS)
+
+    # Determine the set of labels present in the dataset (train + test).
+    # Clean order: keep dataset labels first, then append any expected LABELS
+    dataset_labels = list(pd.unique(pd.concat([train_df["label"], test_df["label"]])))
+    # Preserve dataset order, then include any labels from LABELS not present in data
+    final_label_list = list(dict.fromkeys(dataset_labels + [l for l in LABELS if l not in dataset_labels]))
+
+    le.fit(final_label_list)
     train_df["label"] = le.transform(train_df["label"])
     test_df["label"]  = le.transform(test_df["label"])
 

@@ -1,0 +1,4 @@
+drinking_water
+eating
+sitting_down
+walking

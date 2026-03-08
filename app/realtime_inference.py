@@ -179,6 +179,7 @@ def run(source=0):
     current_activity   = "unknown"
     current_confidence = 0.0
     prev_time          = time.time()
+    last_live_update   = 0.0
 
     print("▶  CareWatch running. Press Q to quit, S to screenshot.")
 
@@ -216,6 +217,20 @@ def run(source=0):
                 current_confidence = top_conf
                 if current_confidence >= 0.85:
                     logger.log(current_activity, current_confidence)
+
+                    # --- pattern check: if pill_taking detected, confirm it only if
+                    # recent logs within a timeframe also include eating and drinking_water.
+                    try:
+                        if current_activity == "pill_taking":
+                            recent = logger.get_recent_minutes(10)
+                            acts = {r['activity'] for r in recent}
+                            if 'eating' in acts and 'drinking_water' in acts:
+                                # Log a derived confirmed-pill event
+                                logger.log('pill_intake_confirmed', current_confidence)
+                                print('✅ pill_intake_confirmed logged (eating+drinking_water detected)')
+                    except Exception:
+                        # Don't break realtime loop on logging errors
+                        pass
             else:
                 current_activity   = "unknown"
                 current_confidence = top_conf
@@ -227,6 +242,15 @@ def run(source=0):
 
         # ── Draw overlay ──
         draw_overlay(frame, current_activity, current_confidence, fps)
+
+        # ── Update live status (throttled to once per second) ──
+        try:
+            now_t = time.time()
+            if now_t - last_live_update >= 1.0:
+                logger.update_live_status(current_activity, current_confidence)
+                last_live_update = now_t
+        except Exception:
+            pass
 
         cv2.imshow("CareWatch", frame)
 

@@ -35,7 +35,7 @@ FRAME_SKIP      = 3        # process every 3rd frame (speeds things up 3x)
 MIN_CONFIDENCE  = 0.5      # ignore keypoints below this confidence
 DEVICE          = "mps" if torch.backends.mps.is_available() else "cpu"
 
-LABELS = ["sitting", "eating", "walking", "pill_taking", "lying_down", "no_person", "fallen"]
+LABELS = ["drinking_water", "eating", "walking", "sitting_down"]
 
 # YOLO11x-pose gives 17 keypoints in COCO format:
 # 0:nose 1:left_eye 2:right_eye 3:left_ear 4:right_ear
