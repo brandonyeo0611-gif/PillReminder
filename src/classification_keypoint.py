@@ -25,7 +25,7 @@ import torch.nn as nn
 # 13:left_knee      14:right_knee
 # 15:left_ankle     16:right_ankle
 
-LABELS = ["drinking_water", "eating", "walking", "sitting_down"]
+LABELS = ["drinking_water", "eating", "walking", "pill_intake", "sitting"]
 NUM_ANGLE_FEATURES = 12   # see AngleFeatureExtractor.angle_triplets
 SEQUENCE_LENGTH    = 30   # frames per classification window (~1 second at 30fps)
 
