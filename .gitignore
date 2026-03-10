@@ -18,7 +18,9 @@ build/
 .vscode/
 
 # Model weights (download separately)
-*.pt
+yolo11n.pt
+yolo11n.pt
+yolo11x-pose.pt
 
 # Data and outputs
 data/
