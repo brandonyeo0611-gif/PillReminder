@@ -13,9 +13,11 @@ Anomaly shape from deviation_detector.check():
 Only dict items are queried. String items are skipped silently.
 """
 
+import logging
 import chromadb
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 DB_PATH = str(Path(__file__).parents[1] / "data" / "chroma_db")
 
 
@@ -26,7 +28,7 @@ class RAGRetriever:
             self.collection = client.get_collection("carewatch_knowledge")
             self._available = True
         except Exception as e:
-            print(f"RAG not available: {e}. Run: python -m src.knowledge_base")
+            logger.warning("RAG not available: %s. Run: python -m src.knowledge_base", e)
             self.collection = None
             self._available = False
 
@@ -61,5 +63,5 @@ class RAGRetriever:
             docs = results.get("documents", [[]])[0]
             return "\n".join(docs)
         except Exception as e:
-            print(f"RAG query failed: {e}")
+            logger.warning("RAG query failed: %s", e)
             return ""

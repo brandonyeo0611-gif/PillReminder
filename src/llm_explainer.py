@@ -19,9 +19,12 @@ Requires env var: GROQ_API_KEY
 Set in .env file or: export GROQ_API_KEY="gsk_..."
 """
 
-import os
 import json
+import logging
+import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Load .env from repo root if present
 _env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -36,7 +39,7 @@ try:
     from groq import Groq
     _groq_available = True
 except ImportError:
-    print("groq not installed. Run: pip install groq")
+    logger.warning("groq not installed. Run: pip install groq")
     _groq_available = False
 
 # concern_level map used by _fallback
@@ -118,7 +121,7 @@ JSON only. No markdown. No extra text. No explanation outside the JSON."""
         # Confirm all 4 keys present — if any missing, use fallback
         required = {"summary", "concern_level", "action", "positive"}
         if not required.issubset(parsed.keys()):
-            print(f"LLM response missing keys: {required - parsed.keys()}. Using fallback.")
+            logger.warning("LLM response missing keys: %s. Using fallback.", required - parsed.keys())
             return _fallback(risk_score, risk_level, anomalies)
 
         # Normalise concern_level to known values
@@ -129,10 +132,10 @@ JSON only. No markdown. No extra text. No explanation outside the JSON."""
         return parsed
 
     except json.JSONDecodeError as e:
-        print(f"LLM returned non-JSON: {e}. Using fallback.")
+        logger.warning("LLM returned non-JSON: %s. Using fallback.", e)
         return _fallback(risk_score, risk_level, anomalies)
     except Exception as e:
-        print(f"LLM call failed: {e}. Using fallback.")
+        logger.warning("LLM call failed: %s. Using fallback.", e)
         return _fallback(risk_score, risk_level, anomalies)
 
 

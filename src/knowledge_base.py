@@ -9,8 +9,11 @@ USAGE:
     python -m src.knowledge_base
 """
 
+import logging
 import chromadb
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = str(Path(__file__).parents[1] / "data" / "chroma_db")
 FACTS_PATH = Path(__file__).parents[1] / "data" / "drug_interactions.txt"
@@ -38,17 +41,18 @@ def build_knowledge_base():
                 ids.append(f"fact_{i}")
 
     if not facts:
-        print("ERROR: No facts found. Check data/drug_interactions.txt exists.")
+        logger.error("No facts found. Check data/drug_interactions.txt exists.")
         return
 
     collection.add(documents=facts, ids=ids)
-    print(f"Loaded {len(facts)} facts into ChromaDB at {DB_PATH}")
+    logger.info("Loaded %d facts into ChromaDB at %s", len(facts), DB_PATH)
 
     # Verify write succeeded immediately
     count = collection.count()
     assert count == len(facts), f"ChromaDB count mismatch: expected {len(facts)}, got {count}"
-    print(f"Verified: {count} documents queryable")
+    logger.info("Verified: %d documents queryable", count)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     build_knowledge_base()

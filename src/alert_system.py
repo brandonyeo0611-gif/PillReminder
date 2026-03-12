@@ -19,9 +19,12 @@ USAGE:
     alerts.send(risk_result)   # pass output from DeviationDetector.check()
 """
 
+import logging
 import os
 import requests
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Load .env from repo root if present (so CAREWATCH_BOT_TOKEN etc. work)
 _env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -50,7 +53,7 @@ class AlertSystem:
         self.chat_id = os.environ.get("CAREWATCH_CHAT_ID", "")
 
         if not self.token or not self.chat_id:
-            print("⚠️  Telegram credentials not set. Alerts will print to console only.")
+            logger.warning("Telegram credentials not set. Alerts will log to console only.")
 
     def send(self, risk_result: dict, person_name: str = "Your family member"):
         """
@@ -63,7 +66,7 @@ class AlertSystem:
 
         # Don't spam the family for GREEN days
         if level == "GREEN":
-            print(f"✅ {person_name} — all normal, no alert sent.")
+            logger.info("%s — all normal, no alert sent.", person_name)
             return
 
         emoji = RISK_EMOJI.get(level, "❓")
@@ -101,11 +104,7 @@ class AlertSystem:
 
         message = "\n".join(lines)
 
-        # Print to console always (useful for demo)
-        print("\n" + "="*50)
-        print("ALERT TRIGGERED:")
-        print(message.replace("*", "").replace("_", ""))
-        print("="*50 + "\n")
+        logger.info("ALERT TRIGGERED: %s", message.replace("*", "").replace("_", ""))
 
         # Send to Telegram if configured
         if self.token and self.chat_id:
@@ -121,11 +120,11 @@ class AlertSystem:
         try:
             resp = requests.post(url, json=payload, timeout=10)
             if resp.status_code == 200:
-                print("📱 Telegram alert sent successfully.")
+                logger.info("Telegram alert sent successfully.")
             else:
-                print(f"❌ Telegram error: {resp.status_code} — {resp.text}")
+                logger.error("Telegram error: %s — %s", resp.status_code, resp.text)
         except requests.RequestException as e:
-            print(f"❌ Could not send Telegram alert: {e}")
+            logger.error("Could not send Telegram alert: %s", e)
 
     def send_daily_summary(self, risk_result: dict, person_name: str = "Your family member"):
         """Send an end-of-day summary regardless of risk level."""
@@ -141,6 +140,6 @@ class AlertSystem:
             f"Have a good night! 🌙"
         )
 
-        print(message.replace("*", "").replace("_", ""))
+        logger.info("Daily summary: %s", message.replace("*", "").replace("_", ""))
         if self.token and self.chat_id:
             self._send_telegram(message)
