@@ -14,12 +14,13 @@ import random
 import sqlite3
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.logger import ActivityLogger
 from src.baseline_builder import BaselineBuilder
 from src.deviation_detector import DeviationDetector
+from src.agent import CareWatchAgent
 
 app = FastAPI(title="CareWatch API")
 
@@ -34,6 +35,7 @@ app.add_middleware(
 logger = ActivityLogger()
 builder = BaselineBuilder(logger)
 detector = DeviationDetector()
+agent    = CareWatchAgent()
 PERSON = "resident"
 
 
@@ -92,6 +94,16 @@ def get_risk():
     return detector.check(PERSON)
 
 
+@app.get("/api/agent/explain")
+def get_agent_explanation():
+    """
+    Full AI agent loop: risk score + RAG context + LLM explanation.
+    Use for the dashboard AI card. Does not send Telegram alert.
+    Safe to poll — send_alert is always False here.
+    """
+    return agent.run(PERSON, send_alert=False)
+
+
 @app.get("/api/baseline")
 def get_baseline():
     """Return baseline profile. baseline_risk is placeholder until risk history stored."""
@@ -109,7 +121,10 @@ def build_baseline_endpoint():
 
 @app.post("/api/demo/inject")
 def inject_demo():
-    """Inject 7 days of demo data and build baseline. For demos when no live data."""
+    """Inject 7 days of demo data and build baseline. For demos when no live data.
+    Development only — disable before production."""
+    if os.getenv("ENV") == "production":
+        raise HTTPException(status_code=403, detail="Demo inject disabled in production")
     _inject_demo_data()
     builder.build_baseline(PERSON)
     return {"ok": True, "message": "Demo data injected and baseline built"}
