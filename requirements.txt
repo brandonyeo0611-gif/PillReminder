@@ -66,4 +66,6 @@ tzdata==2025.3
 ultralytics==8.4.17
 ultralytics-thop==2.0.18
 urllib3==2.6.3
+chromadb==1.5.5
+groq==1.1.1
 uvicorn==0.41.0
