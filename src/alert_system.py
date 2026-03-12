@@ -60,7 +60,6 @@ class AlertSystem:
         level = risk_result.get("risk_level", "UNKNOWN")
         score = risk_result.get("risk_score", 0)
         anomalies = risk_result.get("anomalies", [])
-        summary = risk_result.get("summary", "")
 
         # Don't spam the family for GREEN days
         if level == "GREEN":
@@ -76,7 +75,7 @@ class AlertSystem:
             f"📅 {datetime.now().strftime('%A, %d %b %Y')} at {time_str}",
             f"Risk Level: *{level}* (score: {score}/100)",
             "",
-            f"_{summary}_",
+            f"_{risk_result.get('summary', 'No summary available.')}_",
             "",
         ]
 
@@ -86,10 +85,19 @@ class AlertSystem:
                 sev_icon = "🔴" if a["severity"] == "HIGH" else "🟡" if a["severity"] == "MEDIUM" else "🔵"
                 lines.append(f"{sev_icon} {a['message']}")
 
-        lines += [
-            "",
-            "Please check in with them or review the CareWatch dashboard.",
-        ]
+        ai = risk_result.get("ai_explanation")
+        if ai:
+            lines += [
+                "",
+                f"AI Assessment: {ai.get('summary', '')}",
+                f"Recommended action: {ai.get('action', '')}",
+                f"Today's positive: {ai.get('positive', '')}",
+            ]
+        else:
+            lines += [
+                "",
+                "Please check in with them or review the CareWatch dashboard.",
+            ]
 
         message = "\n".join(lines)
 
