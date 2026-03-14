@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "image_path": "label_recognition/image7.png",
+  "prescription_label": {
+    "patient_name": null,
+    "medication_name": "NIFEDIPINE LA",
+    "dosage": "60 MG",
+    "instructions": "1 TABLET ONCE EVERY MORNING May be taken with or without food. Swallow the tablet whole. Do not crush or chew. for blood pressure",
+    "quantity": "30",
+    "refills": null
+  },
+  "inferred_illnesses": [
+    {
+      "name": "Hypertension (High Blood Pressure)",
+      "probability": 75,
+      "reasoning": "Nifedipine is a calcium channel blocker commonly used to treat high blood pressure.",
+      "management": "Monitor blood pressure regularly, reduce sodium intake, exercise, manage stress, limit alcohol."
+    },
+    {
+      "name": "Angina Pectoris",
+      "probability": 20,
+      "reasoning": "Nifedipine reduces myocardial oxygen demand and improves coronary blood flow.",
+      "management": "Take medication as prescribed, avoid strenuous activity, manage stress, follow heart-healthy diet, seek emergency help if severe chest pain."
+    },
+    {
+      "name": "Raynaud's Phenomenon",
+      "probability": 5,
+      "reasoning": "Extended-release nifedipine may be used off-label to improve blood flow to extremities.",
+      "management": "Keep hands and feet warm, avoid cold exposure, manage underlying conditions, regular monitoring by rheumatologist."
+    }
+  ],
+  "inference_source": "local_knowledge_base"
+}

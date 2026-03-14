@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "image_path": "label_recognition/image6.png",
+  "prescription_label": {
+    "patient_name": "Olivia Wilson",
+    "medication_name": "AMOXICI",
+    "dosage": "500 MG",
+    "instructions": "500mg three times (3x) a day",
+    "quantity": null,
+    "refills": null
+  },
+  "inferred_illnesses": [
+    {
+      "name": "Acute Bacterial Infection",
+      "probability": 90,
+      "reasoning": "Amoxicillin is a broad-spectrum antibiotic used for various bacterial infections.",
+      "management": "Complete full antibiotic course, rest, stay hydrated, manage fever if needed."
+    }
+  ],
+  "inference_source": "local_knowledge_base"
+}

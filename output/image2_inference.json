@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "image_path": "label_recognition/image2.png",
+  "prescription_label": {
+    "patient_name": "Jane Smith",
+    "medication_name": "Zopatine",
+    "dosage": "50 MG",
+    "instructions": "2 pills in the morning and cerotes alo pitts at bedtime",
+    "quantity": "2",
+    "refills": null
+  },
+  "inferred_illnesses": [
+    {
+      "name": "Schizophrenia/Psychotic Disorder",
+      "probability": 80,
+      "reasoning": "Paliperidone (similar antipsychotic) is used to treat schizophrenia and schizoaffective disorder.",
+      "management": "Regular medication adherence, regular psychiatric monitoring, avoid alcohol, maintain social support, manage side effects."
+    },
+    {
+      "name": "Bipolar Disorder",
+      "probability": 15,
+      "reasoning": "May be used as adjunctive therapy in bipolar disorder for mood stabilization.",
+      "management": "Monitor mood changes, maintain consistent sleep schedule, avoid triggers, attend therapy, regular medication adherence."
+    },
+    {
+      "name": "Major Depressive Disorder with Psychotic Features",
+      "probability": 5,
+      "reasoning": "Antipsychotics may be added to antidepressants for severe depression with psychosis.",
+      "management": "Continue antidepressants, psychotherapy, regular psychiatric follow-up, lifestyle modifications."
+    }
+  ],
+  "inference_source": "local_knowledge_base"
+}

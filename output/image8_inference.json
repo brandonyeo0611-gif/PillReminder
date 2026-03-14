@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "image_path": "label_recognition/image8.png",
+  "prescription_label": {
+    "patient_name": "May cause",
+    "medication_name": "of 3",
+    "dosage": "1 TABLET",
+    "instructions": "1 TABLET BY MOUTH May cause TWICE A DAY",
+    "quantity": "1",
+    "refills": null
+  },
+  "inferred_illnesses": [
+    {
+      "name": "Unknown - Consult Healthcare Provider",
+      "probability": 100,
+      "reasoning": "Medication not in knowledge base. Please consult with a healthcare provider for accurate information.",
+      "management": "Consult with your doctor or pharmacist for specific information about this medication."
+    }
+  ],
+  "inference_source": "local_knowledge_base"
+}

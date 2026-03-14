@@ -297,6 +297,7 @@ def _build_cli():
 
 if __name__ == "__main__":
     import json
+    import os
     parser = _build_cli()
     args = parser.parse_args()
     result = analyze_prescription_label(args.image, args.save_preprocessed, debug=args.debug)
@@ -312,8 +313,17 @@ if __name__ == "__main__":
     print("\n--- SUMMARY ---")
     print(json.dumps(output, indent=2))
     
-    # Optionally save to JSON file
+    # Determine output file path
     if args.json_out:
-        with open(args.json_out, "w") as f:
-            json.dump(output, f, indent=2)
-        print(f"\nSaved to {args.json_out}")
+        output_path = args.json_out
+    else:
+        # Default: save to label_recognition/results/ with same filename but .json extension
+        base_name = os.path.splitext(os.path.basename(args.image))[0]
+        results_dir = os.path.join(os.path.dirname(args.image), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        output_path = os.path.join(results_dir, f"{base_name}.json")
+    
+    # Save to JSON file
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2)
+    print(f"\n✅ Saved to {output_path}")
