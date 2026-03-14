@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -24,6 +24,7 @@ from src.baseline_builder import BaselineBuilder
 from src.deviation_detector import DeviationDetector
 from src.medication import MedicationRepo
 from src.medication_ai import MedicationAI
+from src.label_detector import MedicationLabelDetector
 from src.tts import speak
 
 app = FastAPI(title="CareWatch API")
@@ -41,6 +42,7 @@ builder = BaselineBuilder(logger)
 detector = DeviationDetector()
 med_repo = MedicationRepo()
 med_ai = MedicationAI()
+label_detector = MedicationLabelDetector()
 PERSON = "resident"
 
 
@@ -195,4 +197,14 @@ def get_medication_recommendations():
     events = med_repo.get_recent_events(PERSON, days=30)
     illnesses = med_ai.guess_illnesses(events)
     return {"illnesses": illnesses}
+
+@app.post("/api/medication/scan")
+async def scan_medication_label(file: UploadFile = File(...)):
+    """
+    Accepts an uploaded image of a medication label.
+    Uses MedicationLabelDetector to extract name and dose.
+    """
+    contents = await file.read()
+    result = label_detector.extract_from_image(contents)
+    return result
 

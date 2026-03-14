@@ -398,6 +398,11 @@ export default function CareWatchDashboard() {
   const [revealed, setRevealed] = useState([]);
   const [liveData, setLiveData] = useState(INITIAL_LIVE);
   const [injecting,setInjecting]= useState(false);
+  
+  // Add Medicine Form State
+  const [formName, setFormName] = useState("");
+  const [formDose, setFormDose] = useState("");
+  const [isScanning, setIsScanning] = useState(false);
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -477,6 +482,41 @@ export default function CareWatchDashboard() {
       setInjecting(false);
     }
   }
+
+  // ── Scan Label Integration ───────────────────────────────────────────────
+  async function handleScanLabel(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch(`${API}/api/medication/scan`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.medication_name) setFormName(data.medication_name);
+        if (data.dose) setFormDose(data.dose);
+      } else {
+        console.error("Failed to scan label", await res.text());
+        alert("Failed to scan label. Please check API logs.");
+      }
+    } catch (err) {
+      console.error("Scan error:", err);
+      alert("Error scanning label. Is the backend running?");
+    } finally {
+      setIsScanning(false);
+    }
+    
+    // Reset file input so user can scan same file again if needed
+    e.target.value = "";
+  }
+
 
 
 
@@ -791,16 +831,67 @@ export default function CareWatchDashboard() {
 
           {/* Add Medicine Form View */}
           {medTab === "add" && (
-            <div style={{ width: "80%", background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6, padding: "24px" }}>
+            <div style={{ width: "80%", background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6, padding: "24px", position: "relative" }}>
+              <div style={{ position: "absolute", top: 24, right: 24 }}>
+                <input 
+                  type="file" 
+                  id="label-upload" 
+                  accept="image/*" 
+                  style={{ display: "none" }} 
+                  onChange={handleScanLabel}
+                />
+                <label 
+                  htmlFor="label-upload"
+                  style={{ 
+                    background: isScanning ? "#ff980020" : "#ff980015", 
+                    border: `1px solid ${isScanning ? "#ff980080" : "#ff980040"}`, 
+                    color: "#ff9800", 
+                    padding: "8px 16px", 
+                    borderRadius: 4, 
+                    cursor: isScanning ? "wait" : "pointer", 
+                    fontWeight: 700, 
+                    fontSize: 10, 
+                    letterSpacing: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}
+                >
+                  {isScanning ? "⏳ SCANNING..." : "📷 SCAN LABEL"}
+                </label>
+              </div>
+
               <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>MEDICINE NAME *</div>
-              <input type="text" placeholder="e.g. Metformin 500mg" style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} />
+              <input 
+                type="text" 
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="e.g. Metformin 500mg" 
+                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} 
+              />
               
               <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>DOSAGE</div>
-              <input type="text" placeholder="e.g. 1 tablet, 2 capsules" style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 24, outline: "none", fontSize: 12 }} />
+              <input 
+                type="text" 
+                value={formDose}
+                onChange={(e) => setFormDose(e.target.value)}
+                placeholder="e.g. 1 tablet, 2 capsules" 
+                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 24, outline: "none", fontSize: 12 }} 
+              />
               
               <div style={{ display: "flex", gap: 12 }}>
-                <button style={{ background: "#4a9eff15", border: "1px solid #4a9eff40", color: "#4a9eff", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontSize: 10, letterSpacing: 1 }}>SAVE MEDICINE</button>
-                <button style={{ background: "transparent", border: "1px solid #1e2535", color: "#8892a4", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontSize: 10, letterSpacing: 1 }}>CLEAR</button>
+                <button 
+                  onClick={() => alert("Save functionality goes here!")}
+                  style={{ background: "#4a9eff15", border: "1px solid #4a9eff40", color: "#4a9eff", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontSize: 10, letterSpacing: 1 }}
+                >
+                  SAVE MEDICINE
+                </button>
+                <button 
+                  onClick={() => { setFormName(""); setFormDose(""); }}
+                  style={{ background: "transparent", border: "1px solid #1e2535", color: "#8892a4", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontSize: 10, letterSpacing: 1 }}
+                >
+                  CLEAR
+                </button>
               </div>
             </div>
           )}
