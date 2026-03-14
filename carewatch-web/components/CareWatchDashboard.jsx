@@ -15,6 +15,98 @@ const ACTIVITIES = {
   fallen:      { color: "#ff1744", label: "FALLEN",      icon: "!!!" },
 };
 
+const FOOD_RECOMMENDATIONS = {
+  "Diabetes": [
+    "Avoid sugary foods and sweetened drinks",
+    "Choose whole grains over refined carbohydrates",
+    "Eat lean protein (chicken, fish, tofu)",
+    "Include non-starchy vegetables daily"
+  ],
+  "Hypertension (High BP)": [
+    "Reduce sodium/salt intake (< 1500mg/day)",
+    "Eat potassium-rich foods (bananas, potatoes)",
+    "Avoid processed and canned foods",
+    "Limit alcohol consumption"
+  ],
+  "High Cholesterol": [
+    "Limit saturated fats (red meat, full-fat dairy)",
+    "Avoid trans fats (fried foods, baked goods)",
+    "Eat high-fiber foods (oats, beans, berries)",
+    "Choose healthy fats (olive oil, nuts, avocados)"
+  ],
+  "Gout": [
+    "Limit purine-rich foods (red meat, organ meats)",
+    "Avoid alcohol, especially beer",
+    "Drink plenty of water to flush uric acid",
+    "Eat vitamin C-rich foods"
+  ],
+  "Acid Reflux (GERD)": [
+    "Avoid spicy, acidic, and tomato-based foods",
+    "Limit caffeine and chocolate",
+    "Eat smaller, more frequent meals",
+    "Don't eat within 3 hours of bedtime"
+  ],
+  "Kidney Disease": [
+    "Limit phosphorus-rich foods (dairy, colas)",
+    "Restrict potassium depending on stage",
+    "Consume high-quality protein in moderation",
+    "Control sodium intake strictly"
+  ],
+  "Lactose Intolerance": [
+    "Avoid regular dairy (milk, cheese, ice cream)",
+    "Choose lactose-free alternatives",
+    "Check labels for hidden whey or casein"
+  ],
+  "Celiac Disease": [
+    "Strictly avoid gluten (wheat, barley, rye)",
+    "Choose naturally gluten-free grains (quinoa, rice)"
+  ]
+};
+
+const LIFESTYLE_RECOMMENDATIONS = {
+  "Diabetes": [
+    "Maintain 150 mins of moderate aerobic activity weekly",
+    "Monitor blood sugar regularly, especially around exercise",
+    "Check feet daily for cuts or sores",
+    "Stay hydrated, especially during warmer days"
+  ],
+  "Hypertension (High BP)": [
+    "Engage in daily brisk walking or swimming (30 mins)",
+    "Practice stress reduction techniques (meditation, deep breathing)",
+    "Ensure 7-8 hours of quality sleep",
+    "Avoid exercising during extreme heat"
+  ],
+  "High Cholesterol": [
+    "Aim for 30 minutes of cardiovascular exercise daily",
+    "Incorporate resistance training 2 times a week",
+    "Avoid smoking or secondhand smoke exposure"
+  ],
+  "Gout": [
+    "Keep relevant joints elevated during painful flare-ups",
+    "Maintain a healthy body weight gradually (avoid crash diets)",
+    "Engage in low-impact exercises like cycling or swimming protect joints"
+  ],
+  "Acid Reflux (GERD)": [
+    "Wait at least 2 hours after meals before exercising",
+    "Elevate the head of your bed by 6-8 inches",
+    "Wear loose-fitting clothing around the abdomen",
+    "Try light walking after meals to aid digestion"
+  ],
+  "Kidney Disease": [
+    "Consult your doctor before starting new exercise routines",
+    "Monitor blood pressure daily at home",
+    "Pace activities to avoid extreme fatigue"
+  ],
+  "Lactose Intolerance": [
+    "Consider taking a lactase enzyme before occasional dairy consumption",
+    "Ensure adequate calcium/Vitamin D intake through supplements or sunlight"
+  ],
+  "Celiac Disease": [
+    "Use separate toasters and cutting boards to avoid cross-contamination",
+    "Read medication and supplement labels carefully for hidden gluten"
+  ]
+};
+
 const DEMO_NORMAL = {
   current:     "eating",
   confidence:  0.91,
@@ -50,15 +142,14 @@ const DEMO_NORMAL = {
     { day: "SUN", risk: 18, pill: true  },
   ],
   medication: [
-    { label: "Morning dose", time: "08:00", done: true,  actual: "08:05" },
-    { label: "Lunch dose",   time: "13:00", done: true,  actual: "13:12" },
-    { label: "Night dose",   time: "21:00", done: false, actual: null    },
+    { label: "Morning dose", time: "08:00", done: true,  actual: "08:05", requiredFor: "Hypertension (High BP)" },
+    { label: "Lunch dose",   time: "13:00", done: true,  actual: "13:12", requiredFor: "Diabetes" },
+    { label: "Night dose",   time: "21:00", done: false, actual: null,    requiredFor: "High Cholesterol" },
   ],
+  illnesses: ["Diabetes", "Hypertension (High BP)", "High Cholesterol"],
   vitals: {
-    heartRate: { a: 72,     unit: "bpm"   },
-    steps:     { a: 1243,   unit: "steps" },
-    inRoom:    { a: "YES",  unit: ""      },
     temp:      { a: "36.8", unit: "°C"   },
+    inRoom:    { a: "YES",  unit: ""      },
   },
 };
 
@@ -77,17 +168,21 @@ const DEMO_CRISIS = {
     { time: "+1.8s", label: "LONG LIE-DOWN",        sub: "Lying down 12:00 · 2h 10m · unusual",   color: "#ff1744", severity: "critical" },
   ],
   medication: [
-    { label: "Morning dose", time: "08:00", done: false, actual: null },
-    { label: "Lunch dose",   time: "13:00", done: false, actual: null },
-    { label: "Night dose",   time: "21:00", done: false, actual: null },
+    { label: "Morning dose", time: "08:00", done: false, actual: null, requiredFor: "Hypertension (High BP)" },
+    { label: "Lunch dose",   time: "13:00", done: false, actual: null, requiredFor: "Diabetes" },
+    { label: "Night dose",   time: "21:00", done: false, actual: null, requiredFor: "High Cholesterol" },
   ],
   vitals: {
-    heartRate: { a: 58,    unit: "bpm"   },
-    steps:     { a: 214,   unit: "steps" },
-    inRoom:    { a: "YES", unit: ""      },
     temp:      { a: "36.4",unit: "°C"   },
+    inRoom:    { a: "YES", unit: ""      },
   },
 };
+
+const DEMO_MY_MEDICINES = [
+  { id: 1, name: "Metformin 500mg", dosage: "1 tablet", frequency: "2 times/day", duration: "ongoing", times: ["morning", "night"], color: "#4a9eff" },
+  { id: 2, name: "Amlodipine 5mg", dosage: "1 tablet", frequency: "1 time/day", duration: "ongoing", times: ["afternoon"], color: "#00e676" },
+  { id: 3, name: "Vitamin D 1000IU", dosage: "1 capsule", frequency: "1 time/day", duration: "30 days", times: ["morning"], color: "#ffeb3b" }
+];
 
 // Initial live state — same shape as DEMO_NORMAL, apiOk=false means fallback to demo
 const INITIAL_LIVE = {
@@ -100,11 +195,10 @@ const INITIAL_LIVE = {
   alerts:      [],
   week:        [],
   medication:  [],
+  illnesses:   [],
   vitals: {
-    heartRate: { a: 0,     unit: "bpm"   },
-    steps:     { a: 0,     unit: "steps" },
-    inRoom:    { a: "---", unit: ""      },
     temp:      { a: "---", unit: "°C"   },
+    inRoom:    { a: "---", unit: ""      },
   },
 };
 
@@ -112,7 +206,6 @@ const INITIAL_LIVE = {
 
 /**
  * Convert activity_log rows to timeline items.
- * logs: Array<{ timestamp?: string, hour?: number, minute?: number, activity: string, confidence: number }>
  */
 function logsToTimeline(logs) {
   return (logs || []).map((row) => {
@@ -131,8 +224,7 @@ function logsToTimeline(logs) {
 }
 
 /**
- * Convert flat timeline to ActivityRing segments.
- * Each log entry → 15-min segment (0.25h). Consecutive same-activity segments merge.
+ * Convert flat timeline to segments.
  */
 function timelineToRingFormat(timeline) {
   if (!timeline || timeline.length === 0) return DEMO_NORMAL.timeline;
@@ -152,8 +244,6 @@ function timelineToRingFormat(timeline) {
 
 /**
  * Build 7-day week summary.
- * logs: Array<{ date: string, activity: string }> from /api/logs/week
- * riskResult: { risk_score: number }
  */
 function buildWeekData(logs, riskResult) {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -182,14 +272,12 @@ function buildWeekData(logs, riskResult) {
 
 /**
  * Build medication schedule from today's logs.
- * todayLogs: Array<{ activity: string, hour: number, minute: number }>
- * mode: "normal" | "crisis"
  */
 function getMedSchedule(todayLogs, mode) {
   const schedule = [
-    { time: "08:00", label: "Morning dose", done: false, actual: null },
-    { time: "13:00", label: "Lunch dose",   done: false, actual: null },
-    { time: "21:00", label: "Night dose",   done: false, actual: null },
+    { time: "08:00", label: "Morning dose", done: false, actual: null, requiredFor: "General" },
+    { time: "13:00", label: "Lunch dose",   done: false, actual: null, requiredFor: "General" },
+    { time: "21:00", label: "Night dose",   done: false, actual: null, requiredFor: "General" },
   ];
   const pillLogs = (todayLogs || []).filter((r) => r.activity === "pill_taking");
   for (let i = 0; i < schedule.length; i++) {
@@ -209,7 +297,7 @@ function getMedSchedule(todayLogs, mode) {
       }
     }
   }
-  // Crisis mode override — always show morning dose as missed for demo clarity
+  // Crisis mode override — always show morning dose as missed
   if (mode === "crisis") {
     schedule[0].done   = false;
     schedule[0].actual = null;
@@ -242,39 +330,6 @@ function Spark({ data, color, height = 36 }) {
   );
 }
 
-function ActivityRing({ data, size = 220 }) {
-  const cx = size / 2, cy = size / 2;
-  const r  = size * 0.38;
-  const safeData = data && data.length > 0 ? data : DEMO_NORMAL.timeline;
-  const totalHours = safeData.reduce((s, d) => s + d.duration, 0) || 1;
-  let angle = -Math.PI / 2;
-  const slices = safeData.map((d) => {
-    const sweep = (d.duration / totalHours) * 2 * Math.PI;
-    const x1 = cx + r * Math.cos(angle);
-    const y1 = cy + r * Math.sin(angle);
-    angle += sweep;
-    const x2 = cx + r * Math.cos(angle);
-    const y2 = cy + r * Math.sin(angle);
-    const large = sweep > Math.PI ? 1 : 0;
-    return {
-      d:     `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`,
-      color: ACTIVITIES[d.activity]?.color || "#555",
-    };
-  });
-  return (
-    <svg width={size} height={size}>
-      <circle cx={cx} cy={cy} r={r + 2} fill="none" stroke="#1e2535" strokeWidth="1" />
-      {slices.map((s, i) => (
-        <path key={i} d={s.d} fill={s.color} opacity={0.85} />
-      ))}
-      <circle cx={cx} cy={cy} r={r * 0.55} fill="#080b12" />
-      <text x={cx} y={cy - 6}  textAnchor="middle" fill="#4a5568" fontSize="8" fontFamily="'IBM Plex Mono',monospace" letterSpacing="2">ACTIVITY</text>
-      <text x={cx} y={cy + 8}  textAnchor="middle" fill="#4a5568" fontSize="8" fontFamily="'IBM Plex Mono',monospace" letterSpacing="2">PROFILE</text>
-      <text x={cx} y={cy + 22} textAnchor="middle" fill="#4a5568" fontSize="7" fontFamily="'IBM Plex Mono',monospace">(derived)</text>
-    </svg>
-  );
-}
-
 function RiskScore({ score, label }) {
   const color =
     score <= 30 ? "#00e676" :
@@ -284,7 +339,7 @@ function RiskScore({ score, label }) {
     <div style={{ textAlign: "center" }}>
       <div style={{ fontSize: 9, color: "#4a5568", letterSpacing: 3, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 72, fontWeight: 700, color, lineHeight: 1, fontFamily: "'IBM Plex Mono',monospace" }}>{score}</div>
-      <div style={{ fontSize: 9, color: "#4a5568", letterSpacing: 2, marginTop: 4 }}>RISK INDEX</div>
+      <div style={{ fontSize: 9, color: "#4a5568", letterSpacing: 2, marginTop: 4 }}>NON-ADHERENCE RISK</div>
     </div>
   );
 }
@@ -316,12 +371,30 @@ function AlertRow({ alert, revealed }) {
   );
 }
 
+function Clock() {
+  const [timeStr, setTimeStr] = useState("");
+  useEffect(() => {
+    const update = () => {
+      setTimeStr(new Date().toLocaleTimeString("en-SG", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }));
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <span style={{ fontSize: 10, color: "#2d3550" }}>{timeStr}</span>;
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function CareWatchDashboard() {
-  const [mode,     setMode]     = useState("normal");
-  const [alertAck, setAlertAck] = useState(false);
-  const [tick,     setTick]     = useState(0);
+  const [mode,        setMode]        = useState("normal");
+  const [medTab,      setMedTab]      = useState("schedule");
+  const [myMedicines, setMyMedicines] = useState(DEMO_MY_MEDICINES);
+  const [alertAck,    setAlertAck]    = useState(false);
   const [revealed, setRevealed] = useState([]);
   const [liveData, setLiveData] = useState(INITIAL_LIVE);
   const [injecting,setInjecting]= useState(false);
@@ -333,14 +406,11 @@ export default function CareWatchDashboard() {
     ? { ...liveData, mode }
     : mode === "crisis" ? DEMO_CRISIS : DEMO_NORMAL;
 
-  const act       = ACTIVITIES[data.current] || ACTIVITIES.unknown;
   const riskColor = data.risk <= 30 ? "#00e676" : data.risk <= 60 ? "#ffeb3b" : "#ff1744";
   const mono      = "'IBM Plex Mono', 'Courier New', monospace";
   const panel     = { background: "#0d1117", border: "1px solid #1e2535", borderRadius: 2 };
 
-  // Sparkline data — replace with historical API data when available
-  const hrData   = Array.from({ length: 20 }, (_, i) => 65 + Math.sin(i * 0.7) * 8 + (mode === "crisis" ? -10 : 0));
-  const stpData  = Array.from({ length: 20 }, (_, i) => 50 + Math.cos(i * 0.5) * 30);
+  // Sparkline data
   const riskData = Array.from({ length: 20 }, (_, i) =>
     mode === "crisis" ? 40 + i * 1.8 + Math.sin(i) * 5 : 10 + Math.sin(i * 0.8) * 8
   );
@@ -380,7 +450,6 @@ export default function CareWatchDashboard() {
         risk:        risk?.risk_score     ?? 0,
         baselineRisk:baseline?.baseline_risk ?? 15,
         apiOk:       true,
-        timeline:    ringFormat,
         alerts:      alertsFromAPI.length > 0 ? alertsFromAPI : DEMO_NORMAL.alerts,
         week:        weekData.map((d) => ({
           day:  d.day.slice(0, 3).toUpperCase(),
@@ -388,10 +457,10 @@ export default function CareWatchDashboard() {
           pill: d.pill,
         })),
         medication,
-        vitals: DEMO_NORMAL.vitals, // API does not provide vitals; use demo placeholder
+        illnesses:   DEMO_NORMAL.illnesses, // Static setup for hackathon, usually fetched from API
+        vitals: DEMO_NORMAL.vitals,
       });
     } catch (_e) {
-      // API unreachable — keep apiOk: false, component renders demo fallback
       setLiveData((prev) => ({ ...prev, apiOk: false }));
     }
   }
@@ -403,24 +472,41 @@ export default function CareWatchDashboard() {
       await fetch(`${API}/api/demo/inject`, { method: "POST" });
       await loadLiveData();
     } catch (_e) {
-      // silently fail — dashboard stays in demo mode
+      // silently fail
     } finally {
       setInjecting(false);
     }
   }
 
-  // ── Ticker — drives clock re-render every second ───────────────────────────
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+
 
   // ── Auto-fetch on mount and every 30s ─────────────────────────────────────
   useEffect(() => {
     loadLiveData();
     const interval = setInterval(loadLiveData, 30_000);
     return () => clearInterval(interval);
-  }, [mode]); // re-fetch when mode changes so medication schedule recalculates
+  }, [mode]);
+
+  // ── Manual Override ────────────────────────────────────────────────────────
+  function toggleMedication(index) {
+    setLiveData((prev) => {
+      const newMedication = [...prev.medication];
+      const med = { ...newMedication[index] };
+      med.done = !med.done;
+      if (med.done) {
+        const now = new Date();
+        med.actual = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      } else {
+        med.actual = null;
+      }
+      newMedication[index] = med;
+      return { ...prev, medication: newMedication };
+    });
+  }
+
+  function removeMedicine(id) {
+    setMyMedicines(prev => prev.filter(med => med.id !== id));
+  }
 
   // ── Staggered alert reveal animation ──────────────────────────────────────
   useEffect(() => {
@@ -430,12 +516,7 @@ export default function CareWatchDashboard() {
     });
   }, [mode, liveData.apiOk]);
 
-  // key={tick} ensures React cannot optimize away the clock span
-  const timeStr = new Date().toLocaleTimeString("en-SG", {
-    hour:   "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -444,11 +525,11 @@ export default function CareWatchDashboard() {
       {/* ── TOPBAR ── */}
       <div style={{ borderBottom: "1px solid #1e2535", padding: "0 16px", height: 44, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#080b12" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 4, background: "linear-gradient(135deg,#4a9eff,#0057ff)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>👁️</div>
+          <div style={{ width: 28, height: 28, borderRadius: 4, background: "linear-gradient(135deg,#ffeb3b,#ff9800)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>💊</div>
           <div>
             <span style={{ fontWeight: 700, fontSize: 13, color: "#fff", letterSpacing: 1 }}>CARE</span>
-            <span style={{ fontWeight: 700, fontSize: 13, color: "#4a9eff", letterSpacing: 1 }}>WATCH</span>
-            <span style={{ fontSize: 8, color: "#2d3550", marginLeft: 8 }}>SYS V1.0</span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: "#ffeb3b", letterSpacing: 1 }}>MEDS</span>
+            <span style={{ fontSize: 8, color: "#2d3550", marginLeft: 8 }}>V1.2</span>
           </div>
         </div>
 
@@ -458,8 +539,8 @@ export default function CareWatchDashboard() {
             <div style={{ fontSize: 10, color: "#8892a4" }}>MRS TAN · 74F · LIVING ROOM</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2 }}>BASELINE</div>
-            <div style={{ fontSize: 10, color: "#8892a4" }}>SESS_MRS_TAN_BASELINE_7D</div>
+            <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2 }}>PROFILE</div>
+            <div style={{ fontSize: 10, color: "#8892a4" }}>DIET & MEDICATION FOCUS</div>
           </div>
         </div>
 
@@ -476,11 +557,11 @@ export default function CareWatchDashboard() {
                 letterSpacing: 2, cursor: "pointer", fontFamily: mono,
               }}
             >
-              {m === "normal" ? "NORMAL DAY" : "CRISIS MODE"}
+              {m === "normal" ? "NORMAL DAY" : "MISSED DOSE"}
             </button>
           ))}
 
-          {/* Live indicator — green when API connected, grey when in demo fallback */}
+          {/* Live indicator */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#0d1117", borderRadius: 10, border: "1px solid #1e2535" }}>
             <div style={{ width: 5, height: 5, borderRadius: "50%", background: liveData.apiOk ? "#00e676" : "#546e7a", animation: liveData.apiOk ? "pulse 2s infinite" : "none" }} />
             <span style={{ fontSize: 8, color: liveData.apiOk ? "#00e676" : "#546e7a", letterSpacing: 2 }}>
@@ -488,8 +569,8 @@ export default function CareWatchDashboard() {
             </span>
           </div>
 
-          {/* Clock — key={tick} forces re-render every second */}
-          <span key={tick} style={{ fontSize: 10, color: "#2d3550" }}>{timeStr}</span>
+          {/* Clock */}
+          <Clock />
         </div>
       </div>
 
@@ -512,7 +593,7 @@ export default function CareWatchDashboard() {
         </div>
       )}
 
-      {/* ── "Load demo data" banner — shown when API is unreachable ── */}
+      {/* ── Demo data banner ── */}
       {!liveData.apiOk && (
         <div style={{ background: "#0d1117", borderBottom: "1px solid #1e2535", padding: "6px 16px", display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 8, color: "#4a5568" }}>No live data — API unreachable. Showing demo fallback.</span>
@@ -527,127 +608,214 @@ export default function CareWatchDashboard() {
       )}
 
       {/* ── 3-PANEL LAYOUT ── */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "220px 1fr 240px", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "300px 1fr 280px", overflow: "hidden" }}>
 
-        {/* ── LEFT PANEL ── */}
-        <div style={{ borderRight: "1px solid #1e2535", padding: 12, display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginBottom: 4 }}>SENSOR OVERVIEW</div>
+        {/* ── LEFT PANEL: DIET & HEALTH PROFILE ── */}
+        <div style={{ borderRight: "1px solid #1e2535", padding: 16, display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", background: "#080b12" }}>
+          <div style={{ fontSize: 10, color: "#4a9eff", letterSpacing: 3, borderBottom: "1px solid #1e2535", paddingBottom: 8 }}>HEALTH PROFILE & LIFESTYLE</div>
+          
+          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2 }}>DIAGNOSED ILLNESSES</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {data.illnesses.map(ill => (
+              <span key={ill} style={{ background: "#4a9eff18", color: "#4a9eff", border: "1px solid #4a9eff40", padding: "4px 8px", borderRadius: 12, fontSize: 10 }}>
+                {ill}
+              </span>
+            ))}
+          </div>
 
-          {[
-            { label: "HEART RATE",  unit: "bpm",   data: hrData,   color: "#ff5252" },
-            { label: "DAILY STEPS", unit: "steps",  data: stpData,  color: "#4a9eff" },
-            { label: "RISK TREND",  unit: "idx",    data: riskData, color: riskColor  },
-          ].map((s) => (
-            <div key={s.label} style={{ ...panel, padding: "8px 10px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2 }}>{s.label}</span>
-                <span style={{ fontSize: 8, color: "#2d3550" }}>{s.unit}</span>
-              </div>
-              <Spark data={s.data} color={s.color} />
-              <div style={{ fontSize: 8, color: "#2d3550", marginTop: 3 }}>— TODAY</div>
-            </div>
-          ))}
+          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2, marginTop: 8 }}>DIET & LIFESTYLE SUGGESTIONS</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {data.illnesses.map(ill => {
+              const hasFood = FOOD_RECOMMENDATIONS[ill];
+              const hasLife = LIFESTYLE_RECOMMENDATIONS[ill];
+              if (!hasFood && !hasLife) return null;
 
-          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginTop: 4 }}>CURRENT VALUES</div>
-          <div style={{ ...panel, padding: "8px 10px" }}>
-            {Object.entries(data.vitals).map(([key, v]) => {
-              const labels = { heartRate: "HEART", steps: "STEPS", inRoom: "IN ROOM", temp: "TEMP" };
               return (
-                <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", borderBottom: "1px solid #1e2535" }}>
-                  <span style={{ fontSize: 8, color: "#4a5568", letterSpacing: 1 }}>{labels[key]}</span>
-                  <span style={{ fontSize: 12, color: mode === "crisis" && key === "steps" ? "#ff1744" : "#c9d1d9", fontWeight: 600 }}>
-                    {v.a}<span style={{ fontSize: 8, color: "#2d3550", marginLeft: 2 }}>{v.unit}</span>
-                  </span>
+                <div key={ill} style={{ ...panel, padding: "12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#00e676" }} />
+                    <span style={{ fontSize: 11, color: "#00e676", fontWeight: 700 }}>{ill}</span>
+                  </div>
+                  
+                  {hasFood && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 9, color: "#ffeb3b", letterSpacing: 1, marginBottom: 4 }}>🍽️ DIET</div>
+                      <ul style={{ paddingLeft: 16, margin: 0, color: "#c9d1d9", fontSize: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {FOOD_RECOMMENDATIONS[ill].map((rec, i) => (
+                          <li key={`food-${i}`}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {hasLife && (
+                    <div>
+                      <div style={{ fontSize: 9, color: "#4a9eff", letterSpacing: 1, marginBottom: 4 }}>🏃 LIFESTYLE & ACTIVITY</div>
+                      <ul style={{ paddingLeft: 16, margin: 0, color: "#c9d1d9", fontSize: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                        {LIFESTYLE_RECOMMENDATIONS[ill].map((rec, i) => (
+                          <li key={`life-${i}`}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginTop: 12 }}>ENVIRONMENT</div>
+          <div style={{ ...panel, padding: "8px 10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", borderBottom: "1px solid #1e2535" }}>
+              <span style={{ fontSize: 8, color: "#4a5568", letterSpacing: 1 }}>IN ROOM</span>
+              <span style={{ fontSize: 12, color: "#c9d1d9", fontWeight: 600 }}>
+                {data.vitals.inRoom.a}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0" }}>
+              <span style={{ fontSize: 8, color: "#4a5568", letterSpacing: 1 }}>TEMP</span>
+              <span style={{ fontSize: 12, color: "#c9d1d9", fontWeight: 600 }}>
+                {data.vitals.temp.a}<span style={{ fontSize: 8, color: "#2d3550", marginLeft: 2 }}>{data.vitals.temp.unit}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── CENTRE PANEL: MEDICATION SCHEDULE ── */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 0", gap: 0, overflowY: "auto", position: "relative" }}>
+          <div style={{ width: "80%", display: "flex", gap: 32, borderBottom: "1px solid #1e2535", marginBottom: 24 }}>
+            {["schedule", "add", "list"].map((tab) => {
+              const labels = { schedule: "📅 Today's Schedule", add: "➕ Add Medicine", list: `💊 My Medicines (${myMedicines.length})` };
+              const isActive = medTab === tab;
+              return (
+                <div 
+                  key={tab} 
+                  onClick={() => setMedTab(tab)}
+                  style={{ 
+                    paddingBottom: 8, 
+                    cursor: "pointer",
+                    color: isActive ? "#4a9eff" : "#8892a4",
+                    borderBottom: isActive ? "2px solid #4a9eff" : "2px solid transparent",
+                    fontWeight: isActive ? 700 : 400,
+                    fontSize: 12, transition: "all 0.2s"
+                  }}
+                >
+                  {labels[tab]}
                 </div>
               );
             })}
           </div>
 
-          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginTop: 4 }}>MEDICATION</div>
-          <div style={{ ...panel, padding: "8px 10px" }}>
-            {data.medication.map((med, i) => {
+          {/* Today's Schedule View */}
+          {medTab === "schedule" && (
+            <div style={{ width: "80%", display: "flex", flexDirection: "column", gap: 12 }}>
+              {data.medication.map((med, i) => {
               const isMissed = !med.done && mode === "crisis";
+              const isTaken = med.done;
+              const isUpcoming = !med.done && !isMissed;
+              
+              let statusColor = "#8892a4";
+              if (isMissed) statusColor = "#ff1744";
+              if (isTaken) statusColor = "#00e676";
+              if (isUpcoming) statusColor = "#ffeb3b";
+
               return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: i < 2 ? "1px solid #1e2535" : "none" }}>
-                  <span style={{ fontSize: 11 }}>{isMissed ? "❌" : med.done ? "✅" : "⏳"}</span>
-                  <div>
-                    <div style={{ fontSize: 8, color: isMissed ? "#ff6b6b" : "#8892a4" }}>{med.label}</div>
-                    <div style={{ fontSize: 7, color: "#2d3550" }}>
-                      {med.actual ? `Taken ${med.actual}` : `Scheduled ${med.time}`}
+                <div 
+                  key={i} 
+                  onClick={() => toggleMedication(i)}
+                  style={{ 
+                    display: "flex", alignItems: "center", gap: 16, padding: "12px", 
+                    background: `${statusColor}10`, border: `1px solid ${statusColor}40`, 
+                    borderRadius: 6, cursor: "pointer", transition: "all 0.2s" 
+                  }}
+                  onMouseOver={(e) => { e.currentTarget.style.background = `${statusColor}20`; }}
+                  onMouseOut={(e) => { e.currentTarget.style.background = `${statusColor}10`; }}
+                >
+                  <div style={{ fontSize: 24, flexShrink: 0 }}>
+                    {isMissed ? "❌" : isTaken ? "✅" : "⏳"}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: statusColor }}>{med.label.toUpperCase()}</span>
+                      <span style={{ fontSize: 12, color: "#c9d1d9", fontWeight: 700 }}>{med.time}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#8892a4", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                      <span>{med.actual ? `Taken at ${med.actual}` : `Scheduled for ${med.time}`}</span>
+                      <span style={{ fontSize: 8, color: "#4a5568", fontStyle: "italic", textDecoration: "underline" }}>Click to change status</span>
+                    </div>
+                    <div style={{ fontSize: 9, color: "#4a9eff", marginTop: 4, letterSpacing: 1 }}>
+                      REQUIRED FOR: {med.requiredFor.toUpperCase()}
                     </div>
                   </div>
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        {/* ── CENTRE PANEL ── */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 0, overflowY: "auto" }}>
-
-          {/* Dual risk scores */}
-          <div style={{ display: "flex", alignItems: "center", gap: 32, marginBottom: 16 }}>
-            <RiskScore score={data.risk} label="TODAY'S RISK" />
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2 }}>GAP</div>
-              <div style={{ fontSize: 28, color: "#2d3550", fontWeight: 600 }}>{Math.abs(data.risk - (data.baselineRisk ?? 15))}</div>
-              <div style={{ fontSize: 7, color: "#2d3550" }}>pts</div>
             </div>
-            {/* baselineRisk from API — no longer hardcoded */}
-            <RiskScore score={data.baselineRisk ?? 15} label="7D BASELINE" />
-          </div>
+          )}
 
-          {/* Activity ring */}
-          <div style={{ width: 320, height: 320, borderRadius: "50%", border: "1px solid #1e2535", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(circle, #0d111780 0%, #080b12 70%)" }}>
-            <ActivityRing data={data.timeline} size={260} />
-          </div>
-
-          {/* Current activity badge */}
-          <div style={{ marginTop: 12, padding: "6px 20px", background: `${act.color}18`, border: `1px solid ${act.color}40`, borderRadius: 2, textAlign: "center" }}>
-            <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 3, marginBottom: 2 }}>CURRENT ACTIVITY</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: act.color, letterSpacing: 4 }}>{act.label.toUpperCase()}</div>
-            <div style={{ fontSize: 8, color: "#4a5568", marginTop: 2 }}>{Math.round(data.confidence * 100)}% CONFIDENCE</div>
-          </div>
-
-          {/* Timeline bar */}
-          <div style={{ width: "80%", marginTop: 16 }}>
-            <div style={{ fontSize: 7, color: "#2d3550", letterSpacing: 3, marginBottom: 4 }}>TODAY'S TIMELINE — 06:00 → 22:00</div>
-            <div style={{ height: 16, background: "#0d1117", border: "1px solid #1e2535", borderRadius: 2, overflow: "hidden", position: "relative" }}>
-              {data.timeline.map((seg, i) => {
-                const left  = ((seg.hour - 6) / 16) * 100;
-                const width = (seg.duration / 16) * 100;
-                return (
-                  <div
-                    key={i}
-                    style={{ position: "absolute", left: `${left}%`, width: `${Math.max(width, 0.5)}%`, height: 14, background: ACTIVITIES[seg.activity]?.color || "#555", opacity: 0.8 }}
-                    title={seg.activity}
-                  />
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-              {[6, 9, 12, 15, 18, 21].map((h) => (
-                <span key={h} style={{ fontSize: 7, color: "#2d3550" }}>
-                  {h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`}
-                </span>
+          {/* My Medicines List View */}
+          {medTab === "list" && (
+            <div style={{ width: "80%", display: "flex", flexDirection: "column", gap: 12 }}>
+              {myMedicines.map(med => (
+                <div key={med.id} style={{ display: "flex", background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ width: 4, background: med.color }} />
+                  <div style={{ flex: 1, padding: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#c9d1d9", marginBottom: 6 }}>{med.name}</div>
+                      <div style={{ fontSize: 10, color: "#8892a4" }}>{med.dosage} · {med.frequency} · {med.duration}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                      <div style={{ display: "flex", gap: 8, fontSize: 16 }}>
+                        {med.times.includes("morning") && <span title="Morning">🌅</span>}
+                        {med.times.includes("afternoon") && <span title="Afternoon">☀️</span>}
+                        {med.times.includes("night") && <span title="Night">🌙</span>}
+                      </div>
+                      <button 
+                        onClick={() => removeMedicine(med.id)}
+                        style={{ 
+                          background: "#ff174415", border: "1px solid #ff174440", color: "#ff1744", 
+                          width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                          cursor: "pointer", fontSize: 14, transition: "all 0.2s" 
+                        }}
+                        title="Remove Medicine"
+                        onMouseOver={(e) => { e.currentTarget.style.background = "#ff174430"; }}
+                        onMouseOut={(e) => { e.currentTarget.style.background = "#ff174415"; }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
+          )}
+
+          {/* Add Medicine Form View */}
+          {medTab === "add" && (
+            <div style={{ width: "80%", background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6, padding: "24px" }}>
+              <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>MEDICINE NAME *</div>
+              <input type="text" placeholder="e.g. Metformin 500mg" style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} />
+              
+              <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>DOSAGE</div>
+              <input type="text" placeholder="e.g. 1 tablet, 2 capsules" style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 24, outline: "none", fontSize: 12 }} />
+              
+              <div style={{ display: "flex", gap: 12 }}>
+                <button style={{ background: "#4a9eff15", border: "1px solid #4a9eff40", color: "#4a9eff", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontSize: 10, letterSpacing: 1 }}>SAVE MEDICINE</button>
+                <button style={{ background: "transparent", border: "1px solid #1e2535", color: "#8892a4", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontSize: 10, letterSpacing: 1 }}>CLEAR</button>
+              </div>
+            </div>
+          )}
 
           {/* 7-day week */}
-          <div style={{ width: "80%", marginTop: 14 }}>
-            <div style={{ fontSize: 7, color: "#2d3550", letterSpacing: 3, marginBottom: 6 }}>7-DAY HISTORY · 💊 = pill taken</div>
-            <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ width: "80%", marginTop: 32 }}>
+            <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginBottom: 8 }}>7-DAY ADHERENCE HISTORY</div>
+            <div style={{ display: "flex", gap: 10 }}>
               {data.week.map((d, i) => {
                 const c = d.risk <= 30 ? "#00e676" : d.risk <= 60 ? "#ffeb3b" : "#ff1744";
                 return (
-                  <div key={i} style={{ flex: 1, textAlign: "center" }}>
-                    <div style={{ fontSize: 7, color: "#2d3550", marginBottom: 2 }}>{d.day}</div>
-                    <div style={{ height: 32, background: "#0d1117", border: "1px solid #1e2535", borderRadius: 2, position: "relative", overflow: "hidden" }}>
-                      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${d.risk}%`, background: c }} />
-                    </div>
-                    <div style={{ fontSize: 8, color: c, fontWeight: 700, marginTop: 1 }}>{d.risk}</div>
-                    <div style={{ fontSize: 9 }}>{d.pill ? "💊" : "❌"}</div>
+                  <div key={i} style={{ flex: 1, textAlign: "center", background: "#0d1117", padding: "8px 0", borderRadius: 4, border: "1px solid #1e2535" }}>
+                    <div style={{ fontSize: 9, color: "#8892a4", marginBottom: 6 }}>{d.day}</div>
+                    <div style={{ fontSize: 16 }}>{d.pill ? "✅" : "❌"}</div>
+                    <div style={{ fontSize: 8, color: c, marginTop: 6, fontWeight: 700 }}>RISK: {d.risk}</div>
                   </div>
                 );
               })}
@@ -660,33 +828,25 @@ export default function CareWatchDashboard() {
               <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#00e676" }} />
               <span style={{ fontSize: 8, color: "#00e676", letterSpacing: 2 }}>READY</span>
             </div>
-            <span style={{ fontSize: 7, color: "#2d3550" }}>SESS_MRS_TAN_001 · CareWatch v1.0</span>
+            <span style={{ fontSize: 7, color: "#2d3550" }}>SESS_MRS_TAN_001 · CareMeds v1.2</span>
           </div>
         </div>
 
-        {/* ── RIGHT PANEL ── */}
-        <div style={{ borderLeft: "1px solid #1e2535", padding: 12, display: "flex", flexDirection: "column", overflowY: "auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <span style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3 }}>ALERT FEED</span>
-            <span style={{ fontSize: 9, color: riskColor, fontWeight: 700 }}>RISK: {data.risk}</span>
+        {/* ── RIGHT PANEL: ALERTS & RISK ── */}
+        <div style={{ borderLeft: "1px solid #1e2535", padding: 16, display: "flex", flexDirection: "column", overflowY: "auto", background: "#080b12" }}>
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 16 }}>
+            <RiskScore score={data.risk} label="CURRENT ADHERENCE RISK" />
+            
+            <div style={{ ...panel, padding: "8px 10px" }}>
+              <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2, marginBottom: 4 }}>RISK TREND</div>
+              <Spark data={riskData} color={riskColor} />
+            </div>
           </div>
 
-          {/* Risk breakdown — crisis only */}
-          {mode === "crisis" && (
-            <div style={{ ...panel, padding: "8px 10px", marginBottom: 10 }}>
-              <div style={{ fontSize: 7, color: "#ff1744", letterSpacing: 2, marginBottom: 6 }}>RISK BREAKDOWN</div>
-              {[
-                { label: "Pill not taken", pts: 40, color: "#ff1744" },
-                { label: "Inactivity 3h+", pts: 25, color: "#ff1744" },
-                { label: "Late breakfast",  pts: 8,  color: "#ffeb3b" },
-              ].map((r, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderBottom: i < 2 ? "1px solid #1e2535" : "none" }}>
-                  <span style={{ fontSize: 8, color: "#8892a4" }}>{r.label}</span>
-                  <span style={{ fontSize: 8, color: r.color, fontWeight: 700 }}>+{r.pts}pts</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, marginTop: 16, borderBottom: "1px solid #1e2535", paddingBottom: 8 }}>
+            <span style={{ fontSize: 10, color: "#ffeb3b", letterSpacing: 3 }}>EVENT FEED</span>
+          </div>
 
           {/* Alert feed */}
           <div style={{ flex: 1 }}>
@@ -695,44 +855,23 @@ export default function CareWatchDashboard() {
             ))}
           </div>
 
-          {/* Activity key */}
-          <div style={{ marginTop: 12, borderTop: "1px solid #1e2535", paddingTop: 10 }}>
-            <div style={{ fontSize: 7, color: "#2d3550", letterSpacing: 3, marginBottom: 6 }}>ACTIVITY KEY</div>
-            {Object.entries(ACTIVITIES)
-              .filter(([k]) => k !== "unknown")
-              .map(([key, v]) => (
-                <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0" }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 1, background: v.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 7, color: "#4a5568" }}>{v.label.toUpperCase()}</span>
-                </div>
-              ))}
-          </div>
-
           {/* Summary stats */}
-          <div style={{ marginTop: 12, borderTop: "1px solid #1e2535", paddingTop: 10 }}>
-            <div style={{ fontSize: 7, color: "#2d3550", letterSpacing: 3, marginBottom: 6 }}>SUMMARY</div>
+          <div style={{ marginTop: 16, borderTop: "1px solid #1e2535", paddingTop: 12 }}>
+            <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 3, marginBottom: 8 }}>SUMMARY STATS</div>
             {[
-              { label: "Pill compliance", value: `${Math.round((data.week.filter((d) => d.pill).length / Math.max(data.week.length, 1)) * 100)}%`, color: "#ffeb3b" },
-              { label: "Active days",     value: `${data.week.filter((d) => d.risk < 50).length}/${data.week.length}`,                              color: "#00e676" },
-              { label: "Avg risk",        value: `${Math.round(data.week.reduce((s, d) => s + d.risk, 0) / Math.max(data.week.length, 1))}`,         color: "#4a9eff" },
+              { label: "Pill compliance (7d)", value: `${Math.round((data.week.filter((d) => d.pill).length / Math.max(data.week.length, 1)) * 100)}%`, color: "#00e676" },
+              { label: "Missed Doses (7d)",    value: `${data.week.filter((d) => !d.pill).length}`, color: "#ff1744" },
+              { label: "Avg Risk Level",       value: `${Math.round(data.week.reduce((s, d) => s + d.risk, 0) / Math.max(data.week.length, 1))}`,         color: "#ffeb3b" },
             ].map((s, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px solid #1e2535" }}>
-                <span style={{ fontSize: 8, color: "#4a5568" }}>{s.label}</span>
-                <span style={{ fontSize: 10, color: s.color, fontWeight: 700 }}>{s.value}</span>
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < 2 ? "1px solid #1e2535" : "none" }}>
+                <span style={{ fontSize: 9, color: "#4a5568" }}>{s.label}</span>
+                <span style={{ fontSize: 11, color: s.color, fontWeight: 700 }}>{s.value}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap');
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 3px; }
-        ::-webkit-scrollbar-track { background: #080b12; }
-        ::-webkit-scrollbar-thumb { background: #1e2535; }
-      `}</style>
     </div>
   );
 }

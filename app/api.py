@@ -13,13 +13,18 @@ import os
 import random
 import sqlite3
 from datetime import datetime, timedelta
+from typing import List, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from src.logger import ActivityLogger
 from src.baseline_builder import BaselineBuilder
 from src.deviation_detector import DeviationDetector
+from src.medication import MedicationRepo
+from src.medication_ai import MedicationAI
+from src.tts import speak
 
 app = FastAPI(title="CareWatch API")
 
@@ -34,7 +39,27 @@ app.add_middleware(
 logger = ActivityLogger()
 builder = BaselineBuilder(logger)
 detector = DeviationDetector()
+med_repo = MedicationRepo()
+med_ai = MedicationAI()
 PERSON = "resident"
+
+
+class MedicationScheduleIn(BaseModel):
+    medication_name: str
+    dose: Optional[str] = None
+    time_of_day: str          # "HH:MM"
+    tolerance_min: int = 30
+    illness_hint: Optional[str] = None
+
+
+class MedicationScheduleOut(MedicationScheduleIn):
+    id: int
+
+
+class MedicationEventIn(BaseModel):
+    medication_name: str
+    detected_at: Optional[datetime] = None
+    source: str = "ai"  # "ai" or "manual"
 
 
 def _inject_demo_data():
@@ -88,8 +113,14 @@ def get_week():
 
 @app.get("/api/risk")
 def get_risk():
-    """Return risk score and anomalies from deviation detector."""
-    return detector.check(PERSON)
+    """Return combined behavioural + medication adherence risk."""
+    base = detector.check(PERSON)
+    med_risk = med_repo.get_medication_risk(PERSON)
+    combined = dict(base)
+    combined_score = max(0, min(100, base.get("risk_score", 0) + med_risk))
+    combined["risk_score"] = combined_score
+    combined["medication_risk_component"] = med_risk
+    return combined
 
 
 @app.get("/api/baseline")
@@ -113,3 +144,55 @@ def inject_demo():
     _inject_demo_data()
     builder.build_baseline(PERSON)
     return {"ok": True, "message": "Demo data injected and baseline built"}
+
+
+@app.get("/api/medication/schedules", response_model=List[MedicationScheduleOut])
+def list_schedules():
+    """Return all medication schedules for the resident."""
+    return med_repo.list_schedules(PERSON)
+
+
+@app.post("/api/medication/schedules", response_model=MedicationScheduleOut)
+def create_schedule(payload: MedicationScheduleIn):
+    """Create a new medication schedule entry."""
+    return med_repo.create_schedule(PERSON, payload)
+
+
+@app.delete("/api/medication/schedules/{schedule_id}")
+def delete_schedule(schedule_id: int):
+    """Delete a medication schedule entry."""
+    med_repo.delete_schedule(PERSON, schedule_id)
+    return {"ok": True}
+
+
+@app.post("/api/medication/event")
+def record_medication_event(payload: MedicationEventIn):
+    """
+    Record a detected medication intake event from the AI webcam or manual input.
+    Updates the medication risk component based on timeliness.
+    """
+    ts = payload.detected_at or datetime.utcnow()
+    result = med_repo.record_event(PERSON, payload.medication_name, ts, payload.source)
+    return result
+
+
+@app.post("/api/medication/check-reminders")
+def check_reminders():
+    """
+    Check all schedules and trigger verbal reminders (text-to-speech)
+    for any doses that have passed their tolerance window without detection.
+    """
+    triggered = med_repo.check_and_trigger_reminders(PERSON, speaker=speak)
+    return {"ok": True, "triggered": triggered}
+
+
+@app.get("/api/medication/recommendations")
+def get_medication_recommendations():
+    """
+    Guess likely illnesses based on recent medication history and return them.
+    Frontend can map these illnesses to diet and lifestyle suggestions.
+    """
+    events = med_repo.get_recent_events(PERSON, days=30)
+    illnesses = med_ai.guess_illnesses(events)
+    return {"illnesses": illnesses}
+
