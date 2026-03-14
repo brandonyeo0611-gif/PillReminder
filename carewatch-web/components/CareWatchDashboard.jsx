@@ -313,9 +313,11 @@ function Spark({ data, color, height = 36 }) {
   const max = Math.max(...data);
   const range = max - min || 1;
   const pts = data
-    .map((v, i) =>
-      `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * (h - 4) - 2}`
-    )
+    .map((v, i) => {
+      const x = ((i / (data.length - 1)) * w).toFixed(2);
+      const y = (h - ((v - min) / range) * (h - 4) - 2).toFixed(2);
+      return `${x},${y}`;
+    })
     .join(" ");
   return (
     <svg width={w} height={h} style={{ display: "block" }}>
@@ -404,12 +406,22 @@ export default function CareWatchDashboard() {
   const [formDose, setFormDose] = useState("");
   const [isScanning, setIsScanning] = useState(false);
 
+  // Illnesses Interactive State
+  const [confirmedIllnesses, setConfirmedIllnesses] = useState([]);
+  const [removedIllnesses, setRemovedIllnesses] = useState([]);
+
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   // Use live data when API is reachable; otherwise fall back to demo constants
-  const data = liveData.apiOk
+  const _rawData = liveData.apiOk
     ? { ...liveData, mode }
     : mode === "crisis" ? DEMO_CRISIS : DEMO_NORMAL;
+    
+  // Filter out removed illnesses for the entire UI
+  const data = {
+    ..._rawData,
+    illnesses: (_rawData.illnesses || []).filter(ill => !removedIllnesses.includes(ill))
+  };
 
   const riskColor = data.risk <= 30 ? "#00e676" : data.risk <= 60 ? "#ffeb3b" : "#ff1744";
   const mono      = "'IBM Plex Mono', 'Courier New', monospace";
@@ -654,13 +666,24 @@ export default function CareWatchDashboard() {
         <div style={{ borderRight: "1px solid #1e2535", padding: 16, display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", background: "#080b12" }}>
           <div style={{ fontSize: 10, color: "#4a9eff", letterSpacing: 3, borderBottom: "1px solid #1e2535", paddingBottom: 8 }}>HEALTH PROFILE & LIFESTYLE</div>
           
-          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2 }}>DIAGNOSED ILLNESSES</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {data.illnesses.map(ill => (
-              <span key={ill} style={{ background: "#4a9eff18", color: "#4a9eff", border: "1px solid #4a9eff40", padding: "4px 8px", borderRadius: 12, fontSize: 10 }}>
-                {ill}
-              </span>
-            ))}
+          <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2 }}>PREDICTED ILLNESSES</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {data.illnesses.map(ill => {
+              const isConfirmed = confirmedIllnesses.includes(ill);
+              return (
+                <div key={ill} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: isConfirmed ? "#00e67615" : "#4a9eff18", border: `1px solid ${isConfirmed ? "#00e67640" : "#4a9eff40"}`, padding: "4px 8px", borderRadius: 4 }}>
+                  <span style={{ color: isConfirmed ? "#00e676" : "#4a9eff", fontSize: 10, fontWeight: isConfirmed ? 700 : 400 }}>
+                    {ill} {isConfirmed && "✓"}
+                  </span>
+                  {!isConfirmed && (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => setConfirmedIllnesses(prev => [...prev, ill])} style={{ background: "transparent", border: "1px solid #00e67640", color: "#00e676", fontSize: 8, padding: "2px 6px", borderRadius: 2, cursor: "pointer", fontFamily: mono }}>CONFIRM</button>
+                      <button onClick={() => setRemovedIllnesses(prev => [...prev, ill])} style={{ background: "transparent", border: "1px solid #ff174440", color: "#ff1744", fontSize: 8, padding: "2px 6px", borderRadius: 2, cursor: "pointer", fontFamily: mono }}>REMOVE</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2, marginTop: 8 }}>DIET & LIFESTYLE SUGGESTIONS</div>
