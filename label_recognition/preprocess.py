@@ -115,7 +115,7 @@ def parse_prescription_label(ocr_text: str) -> Dict:
             med = med.replace('Fusitnal', 'Fusithal').replace('Pusithal', 'Fusithal').replace('Fusithalmic', 'Fusithal')
             # Filter out single-letter matches and common false positives
             # Also exclude multi-line results (containing \n)
-            false_positives = ['TAKE', 'PHARMACY', 'DOCTOR', 'PATIENT', 'SENTENCE', 'ACCORD', 'HEALTHCARE', 'KEEP', 'AWAY', 'FROM', 'CLINIC', 'COMMUNITY', 'STRAITS', 'UNIVERSITY', 'HEALTH', 'CENTRE', 'CENTER', 'HOSPITAL', 'MEDICAL', 'GROUP', 'SERVICE', 'STATION', 'NORTHEAST', 'ROAD', 'TEL', 'DATE']
+            false_positives = ['TAKE', 'PHARMACY', 'DOCTOR', 'PATIENT', 'SENTENCE', 'ACCORD', 'HEALTHCARE', 'KEEP', 'AWAY', 'FROM', 'CLINIC', 'COMMUNITY', 'STRAITS', 'UNIVERSITY', 'HEALTH', 'CENTRE', 'CENTER', 'HOSPITAL', 'MEDICAL', 'GROUP', 'SERVICE', 'STATION', 'NORTHEAST', 'ROAD', 'TEL', 'DATE', 'FAHLET', 'DOMOSIWENE']
             if len(med) > 2 and '\n' not in med and not any(kw in med.upper() for kw in false_positives):
                 result["medication_name"] = med
                 break
