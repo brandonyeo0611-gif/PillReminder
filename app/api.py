@@ -58,6 +58,16 @@ class MedicationScheduleOut(MedicationScheduleIn):
     id: int
 
 
+class MealScheduleIn(BaseModel):
+    meal_name: str
+    time_of_day: str          # "HH:MM"
+    tolerance_min: int = 60
+
+
+class MealScheduleOut(MealScheduleIn):
+    id: int
+
+
 class MedicationEventIn(BaseModel):
     medication_name: str
     detected_at: Optional[datetime] = None
@@ -207,4 +217,23 @@ async def scan_medication_label(file: UploadFile = File(...)):
     contents = await file.read()
     result = label_detector.extract_from_image(contents)
     return result
+
+# ── Meals ────────────────────────────────────────────────────────────────
+@app.get("/api/meals", response_model=List[MealScheduleOut])
+def list_meals():
+    """Return all meal schedules for the resident."""
+    return med_repo.list_meal_schedules(PERSON)
+
+
+@app.post("/api/meals", response_model=MealScheduleOut)
+def create_meal(payload: MealScheduleIn):
+    """Create a new meal schedule entry."""
+    return med_repo.create_meal_schedule(PERSON, payload)
+
+
+@app.delete("/api/meals/{meal_id}")
+def delete_meal(meal_id: int):
+    """Delete a meal schedule entry."""
+    med_repo.delete_meal_schedule(PERSON, meal_id)
+    return {"ok": True}
 

@@ -429,6 +429,11 @@ export default function CareWatchDashboard() {
   const [confirmedIllnesses, setConfirmedIllnesses] = useState([]);
   const [removedIllnesses, setRemovedIllnesses] = useState([]);
 
+  // Meals State
+  const [meals, setMeals] = useState([]);
+  const [mealFormName, setMealFormName] = useState("Breakfast");
+  const [mealFormTime, setMealFormTime] = useState("08:00");
+
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   // Use live data when API is reachable; otherwise fall back to demo constants
@@ -454,14 +459,17 @@ export default function CareWatchDashboard() {
   // ── Fetch live data from API ───────────────────────────────────────────────
   async function loadLiveData() {
     try {
-      const [latest, risk, week, today, baseline, schedules] = await Promise.all([
+      const [latest, risk, week, today, baseline, schedules, fetchedMeals] = await Promise.all([
         fetch(`${API}/api/logs/latest`).then((r) => r.json()),
         fetch(`${API}/api/risk`).then((r) => r.json()),
         fetch(`${API}/api/logs/week`).then((r) => r.json()),
         fetch(`${API}/api/logs/today`).then((r) => r.json()),
         fetch(`${API}/api/baseline`).then((r) => r.json()),
         fetch(`${API}/api/medication/schedules`).then((r) => r.json()).catch(() => []),
+        fetch(`${API}/api/meals`).then((r) => r.json()).catch(() => []),
       ]);
+
+      setMeals(Array.isArray(fetchedMeals) ? fetchedMeals : []);
 
       const timeline   = logsToTimeline(Array.isArray(today) ? today : []);
       const ringFormat = timelineToRingFormat(timeline);
@@ -674,6 +682,35 @@ export default function CareWatchDashboard() {
     }
   }
 
+  // ── Meal Handlers ─────────────────────────────────────────────────────────
+  async function handleSaveMeal() {
+    if (!mealFormName || !mealFormTime) return alert("Please fill in meal details");
+    try {
+      await fetch(`${API}/api/meals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meal_name: mealFormName,
+          time_of_day: mealFormTime,
+          tolerance_min: 60
+        })
+      });
+      await loadLiveData();
+    } catch (err) {
+      console.error("Failed to save meal", err);
+      alert("Error saving meal");
+    }
+  }
+
+  async function handleRemoveMeal(id) {
+    try {
+      await fetch(`${API}/api/meals/${id}`, { method: "DELETE" });
+      await loadLiveData();
+    } catch (err) {
+      console.error("Failed to remove meal", err);
+    }
+  }
+
   // ── Staggered alert reveal animation ──────────────────────────────────────
   useEffect(() => {
     setRevealed([]);
@@ -798,6 +835,52 @@ export default function CareWatchDashboard() {
                 </div>
               );
             })}
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2, borderBottom: "1px solid #1e2535", paddingBottom: 8, marginBottom: 8 }}>MEAL TIMES (TTS REMINDERS)</div>
+            
+            {/* Meal List */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+              {meals.map(m => (
+                 <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#0d1117", border: "1px solid #1e2535", padding: "6px 8px", borderRadius: 4 }}>
+                   <div>
+                     <div style={{ color: "#c9d1d9", fontSize: 10, fontWeight: 700 }}>{m.meal_name}</div>
+                     <div style={{ color: "#8892a4", fontSize: 9 }}>{m.time_of_day}</div>
+                   </div>
+                   <button onClick={() => handleRemoveMeal(m.id)} style={{ background: "transparent", border: "1px solid #ff174440", color: "#ff1744", fontSize: 8, padding: "2px 6px", borderRadius: 2, cursor: "pointer", fontFamily: mono }}>REMOVE</button>
+                 </div>
+              ))}
+              {meals.length === 0 && <div style={{ fontSize: 9, color: "#546e7a", fontStyle: "italic" }}>No meal times configured.</div>}
+            </div>
+            
+            {/* Add Meal Form */}
+            <div style={{ background: "#0d1117", border: "1px dashed #1e2535", padding: 8, borderRadius: 4, display: "flex", gap: 6, flexDirection: "column" }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select 
+                  value={mealFormName} onChange={e => setMealFormName(e.target.value)}
+                  style={{ flex: 1, background: "transparent", border: "1px solid #1e2535", color: "#c9d1d9", fontSize: 9, padding: 4, fontFamily: mono }}
+                >
+                  <option value="Breakfast">Breakfast</option>
+                  <option value="Lunch">Lunch</option>
+                  <option value="Dinner">Dinner</option>
+                  <option value="Supper">Supper</option>
+                  <option value="Snack">Snack</option>
+                </select>
+                <input 
+                  type="time" value={mealFormTime} onChange={e => setMealFormTime(e.target.value)}
+                  style={{ width: 60, background: "transparent", border: "1px solid #1e2535", color: "#c9d1d9", fontSize: 9, padding: 4, fontFamily: mono, WebkitAppearance: "none" }}
+                  required
+                />
+              </div>
+              <button 
+                onClick={handleSaveMeal}
+                style={{ background: "#4a9eff", border: "none", color: "#000", fontSize: 9, padding: "4px", borderRadius: 2, cursor: "pointer", fontFamily: mono, fontWeight: 700 }}
+              >
+                + ADD MEAL
+              </button>
+            </div>
+          </div>
           </div>
 
           <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2, marginTop: 8 }}>DIET & LIFESTYLE SUGGESTIONS</div>

@@ -28,6 +28,8 @@ from src.classification_keypoint import AngleFeatureExtractor, AngleLSTMNet, SEQ
 from src.logger import ActivityLogger
 from src.deviation_detector import DeviationDetector
 from src.alert_system import AlertSystem
+from src.medication import MedicationRepo
+from src.tts import speak
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 POSE_MODEL_PATH  = "yolo11x-pose.pt"
@@ -152,12 +154,24 @@ def draw_overlay(frame, activity, confidence, fps):
 
 
 # ── DEVIATION CHECK (runs every 15 min, sends Telegram on YELLOW/RED) ──────────
-def deviation_check_loop():
-    """Background thread: compare today vs baseline, send alerts if needed."""
+def deviation_check_loop(med_repo, logger):
+    """Background thread: compare today vs baseline, send alerts if needed, and check TTS reminders."""
+    iterations = 0
     while True:
-        result = DeviationDetector().check("resident")
-        AlertSystem().send(result, person_name="Mrs Tan")
-        time.sleep(900)  # 15 minutes
+        try:
+            # Check deviation every 15 mins (15 iterations of 60s)
+            if iterations % 15 == 0:
+                result = DeviationDetector().check("resident")
+                AlertSystem().send(result, person_name="Mrs Tan")
+
+            # Check for missed meds and meals every minute
+            med_repo.check_and_trigger_reminders("resident", speaker=speak)
+            med_repo.check_and_trigger_meal_reminders("resident", speaker=speak, logger=logger)
+        except Exception as e:
+            print(f"⚠️ Background loop warning: {e}")
+
+        iterations += 1
+        time.sleep(60)  # 1 minute
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────────────────
 
@@ -171,7 +185,8 @@ def run(source=0):
         print(f"❌ Cannot open source: {source}")
         return
 
-    threading.Thread(target=deviation_check_loop, daemon=True).start()
+    med_repo = MedicationRepo()
+    threading.Thread(target=deviation_check_loop, args=(med_repo, logger), daemon=True).start()
 
     # Rolling buffer of angle frames for LSTM
     frame_buffer = collections.deque(maxlen=SEQUENCE_LENGTH)

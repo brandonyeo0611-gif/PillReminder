@@ -42,6 +42,17 @@ class MedicationRepo:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS meal_schedule (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_id     TEXT    NOT NULL,
+                    meal_name     TEXT    NOT NULL,
+                    time_of_day   TEXT    NOT NULL,   -- "HH:MM"
+                    tolerance_min INTEGER NOT NULL DEFAULT 60
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS medication_event (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     person_id     TEXT    NOT NULL,
@@ -109,6 +120,53 @@ class MedicationRepo:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "DELETE FROM medication_schedule WHERE person_id = ? AND id = ?",
+                (person_id, schedule_id),
+            )
+            conn.commit()
+
+    # ── Meal Schedules CRUD ────────────────────────────────────────────────
+    def list_meal_schedules(self, person_id: str) -> List[Dict]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM meal_schedule
+                WHERE person_id = ?
+                ORDER BY time_of_day ASC, id ASC
+                """,
+                (person_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_meal_schedule(self, person_id: str, payload) -> Dict:
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO meal_schedule
+                    (person_id, meal_name, time_of_day, tolerance_min)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    person_id,
+                    payload.meal_name,
+                    payload.time_of_day,
+                    payload.tolerance_min,
+                ),
+            )
+            schedule_id = cur.lastrowid
+            conn.commit()
+
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM meal_schedule WHERE id = ?", (schedule_id,)
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def delete_meal_schedule(self, person_id: str, schedule_id: int) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM meal_schedule WHERE person_id = ? AND id = ?",
                 (person_id, schedule_id),
             )
             conn.commit()
@@ -356,6 +414,107 @@ class MedicationRepo:
                         "schedule_id": s["id"],
                         "medication_name": s["medication_name"],
                         "new_risk_score": new_risk,
+                    }
+                )
+
+        return triggered
+
+    def check_and_trigger_meal_reminders(self, person_id: str, speaker=None, logger=None) -> List[Dict]:
+        """
+        Check meal schedules. If a meal window has passed and no eating
+        activity was logged during that hour, trigger a TTS reminder.
+        """
+        now = datetime.utcnow()
+        today = date.today()
+        triggered: List[Dict] = []
+
+        if logger is None:
+            return triggered
+
+        # Quick check for today's 'eating' logs
+        # Since logger returns a list of dicts for `get_today`
+        today_logs = logger.get_today(person_id) or []
+        eating_logs = [log for log in today_logs if log.get('activity') == 'eating']
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            schedules = conn.execute(
+                """
+                SELECT *
+                FROM meal_schedule
+                WHERE person_id = ?
+                """,
+                (person_id,),
+            ).fetchall()
+
+            for s in schedules:
+                sched_time = _parse_hhmm(s["time_of_day"])
+                sched_dt = datetime.combine(today, sched_time)
+                tol = timedelta(minutes=int(s["tolerance_min"]))
+                window_end = sched_dt + tol
+
+                if now <= window_end:
+                    continue  # Window hasn't passed yet
+
+                # Did they eat near this time? (Within hour block of the meal time)
+                ate_during_meal = False
+                for log in eating_logs:
+                    try:
+                        log_h = log.get('hour', 0)
+                        log_m = log.get('minute', 0)
+                        log_dt = datetime.combine(today, time(hour=int(log_h), minute=int(log_m)))
+                        # If eating was detected any time between (sched_time - tolerance) and (window_end)
+                        if (sched_dt - tol) <= log_dt <= window_end:
+                            ate_during_meal = True
+                            break
+                    except Exception:
+                        pass
+
+                if ate_during_meal:
+                    continue
+
+                # Has this specific meal already been reminded today?
+                # We reuse the `medication_event` table but use source="missed_meal" and medication_name=meal_name
+                # Note: this is a hackathon shortcut instead of a dedicated reminder table.
+                reminded_already = conn.execute(
+                    """
+                    SELECT 1
+                    FROM medication_event
+                    WHERE person_id = ? AND scheduled_id = ? AND source = 'missed_meal'
+                      AND date(timestamp) = date('now')
+                    LIMIT 1
+                    """,
+                    (person_id, s["id"]),
+                ).fetchone()
+
+                if reminded_already:
+                    continue
+
+                # It's late and they haven't eaten. Log the reminder so we don't spam.
+                conn.execute(
+                    """
+                    INSERT INTO medication_event
+                        (person_id, medication_name, timestamp, scheduled_id, on_time, source)
+                    VALUES (?, ?, ?, ?, 0, 'missed_meal')
+                    """,
+                    (person_id, s["meal_name"], window_end.isoformat(), s["id"]),
+                )
+                conn.commit()
+
+                message = (
+                    f"It is time for your {s['meal_name']}. "
+                    "Please have your meal now."
+                )
+                if speaker is not None:
+                    try:
+                        speaker(message)
+                    except Exception:
+                        pass
+
+                triggered.append(
+                    {
+                        "meal_id": s["id"],
+                        "meal_name": s["meal_name"]
                     }
                 )
 
