@@ -271,38 +271,55 @@ function buildWeekData(logs, riskResult) {
 }
 
 /**
- * Build medication schedule from today's logs.
+ * Build medication schedule dynamically from API schedules and today's logs.
  */
-function getMedSchedule(todayLogs, mode) {
-  const schedule = [
-    { time: "08:00", label: "Morning dose", done: false, actual: null, requiredFor: "General" },
-    { time: "13:00", label: "Lunch dose",   done: false, actual: null, requiredFor: "General" },
-    { time: "21:00", label: "Night dose",   done: false, actual: null, requiredFor: "General" },
-  ];
+function getMedSchedule(todayLogs, schedules, mode) {
+  let mappedSchedules = [];
+  if (!Array.isArray(schedules) || schedules.length === 0) {
+    mappedSchedules = [
+      { id: 1, time_of_day: "08:00", medication_name: "Morning dose", illness_hint: "General" },
+      { id: 2, time_of_day: "13:00", medication_name: "Lunch dose",   illness_hint: "General" },
+      { id: 3, time_of_day: "21:00", medication_name: "Night dose",   illness_hint: "General" },
+    ];
+  } else {
+    mappedSchedules = schedules;
+  }
+  
   const pillLogs = (todayLogs || []).filter((r) => r.activity === "pill_taking");
-  for (let i = 0; i < schedule.length; i++) {
+  
+  const result = mappedSchedules.map(s => {
+    let done = false;
+    let actual = null;
+    
+    const schedHour = parseInt(s.time_of_day.split(":")[0]);
+    const schedMin = parseInt(s.time_of_day.split(":")[1] || 0);
+
     for (const p of pillLogs) {
       const h = p.hour ?? 0;
       const m = p.minute ?? 0;
-      const pt = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-      if (i === 0 && h < 12) {
-        schedule[i].done = true;
-        schedule[i].actual = pt;
-      } else if (i === 1 && h >= 11 && h <= 14) {
-        schedule[i].done = true;
-        schedule[i].actual = pt;
-      } else if (i === 2 && h >= 20) {
-        schedule[i].done = true;
-        schedule[i].actual = pt;
+      const diff = Math.abs((h * 60 + m) - (schedHour * 60 + schedMin));
+      if (diff <= 120 && !done) {
+        done = true;
+        actual = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       }
     }
+    
+    return {
+      id: s.id,
+      medication_name: s.medication_name,
+      time: s.time_of_day,
+      label: s.medication_name,
+      done,
+      actual,
+      requiredFor: s.illness_hint || "General"
+    };
+  });
+
+  if (mode === "crisis" && result.length > 0) {
+    result[0].done   = false;
+    result[0].actual = null;
   }
-  // Crisis mode override — always show morning dose as missed
-  if (mode === "crisis") {
-    schedule[0].done   = false;
-    schedule[0].actual = null;
-  }
-  return schedule;
+  return result;
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -404,6 +421,8 @@ export default function CareWatchDashboard() {
   // Add Medicine Form State
   const [formName, setFormName] = useState("");
   const [formDose, setFormDose] = useState("");
+  const [formTimes, setFormTimes] = useState([]);
+  const [formIllness, setFormIllness] = useState("");
   const [isScanning, setIsScanning] = useState(false);
 
   // Illnesses Interactive State
@@ -435,18 +454,51 @@ export default function CareWatchDashboard() {
   // ── Fetch live data from API ───────────────────────────────────────────────
   async function loadLiveData() {
     try {
-      const [latest, risk, week, today, baseline] = await Promise.all([
+      const [latest, risk, week, today, baseline, schedules] = await Promise.all([
         fetch(`${API}/api/logs/latest`).then((r) => r.json()),
         fetch(`${API}/api/risk`).then((r) => r.json()),
         fetch(`${API}/api/logs/week`).then((r) => r.json()),
         fetch(`${API}/api/logs/today`).then((r) => r.json()),
         fetch(`${API}/api/baseline`).then((r) => r.json()),
+        fetch(`${API}/api/medication/schedules`).then((r) => r.json()).catch(() => []),
       ]);
 
       const timeline   = logsToTimeline(Array.isArray(today) ? today : []);
       const ringFormat = timelineToRingFormat(timeline);
       const weekData   = buildWeekData(Array.isArray(week) ? week : [], risk);
-      const medication = getMedSchedule(Array.isArray(today) ? today : [], mode);
+      const safeSchedules = Array.isArray(schedules) ? schedules : [];
+      const medication = getMedSchedule(Array.isArray(today) ? today : [], safeSchedules, mode);
+      
+      if (safeSchedules.length > 0) {
+        const grouped = {};
+        safeSchedules.forEach(s => {
+          if (!grouped[s.medication_name]) {
+            grouped[s.medication_name] = {
+              id: s.id, // reference for delete
+              name: s.medication_name,
+              dosage: s.dose || "1 tablet",
+              frequency: "",
+              duration: "ongoing",
+              times: [],
+              color: "#4a9eff",
+              scheduleIds: []
+            };
+          }
+          grouped[s.medication_name].scheduleIds.push(s.id);
+          const hour = parseInt(s.time_of_day.split(":")[0]);
+          let timeName = "morning";
+          if (hour >= 12 && hour < 17) timeName = "afternoon";
+          else if (hour >= 17) timeName = "night";
+          grouped[s.medication_name].times.push(timeName);
+        });
+        
+        Object.values(grouped).forEach(g => {
+          g.frequency = `${g.times.length} time(s)/day`;
+        });
+        setMyMedicines(Object.values(grouped));
+      } else {
+        setMyMedicines(DEMO_MY_MEDICINES);
+      }
 
       // Map anomalies from detector into alert feed format
       const alertsFromAPI = Array.isArray(risk?.anomalies)
@@ -540,24 +592,86 @@ export default function CareWatchDashboard() {
   }, [mode]);
 
   // ── Manual Override ────────────────────────────────────────────────────────
-  function toggleMedication(index) {
-    setLiveData((prev) => {
-      const newMedication = [...prev.medication];
-      const med = { ...newMedication[index] };
-      med.done = !med.done;
-      if (med.done) {
-        const now = new Date();
-        med.actual = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-      } else {
-        med.actual = null;
+  async function toggleMedication(index) {
+    const med = liveData.medication[index];
+    const isNowDone = !med.done;
+    
+    if (isNowDone) {
+      try {
+        await fetch(`${API}/api/medication/event`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            medication_name: med.medication_name || med.label,
+            source: "manual"
+          })
+        });
+        await loadLiveData();
+      } catch (err) {
+        console.error("Failed to toggle medication event", err);
       }
-      newMedication[index] = med;
-      return { ...prev, medication: newMedication };
-    });
+    } else {
+      // Just visually untoggle for now since there's no "undo event" endpoint
+      setLiveData((prev) => {
+        const newMedication = [...prev.medication];
+        const m = { ...newMedication[index] };
+        m.done = false;
+        m.actual = null;
+        newMedication[index] = m;
+        return { ...prev, medication: newMedication };
+      });
+    }
   }
 
-  function removeMedicine(id) {
+  async function removeMedicine(id) {
+    try {
+      const med = myMedicines.find(m => m.id === id);
+      if (med && med.scheduleIds) {
+        for (const sId of med.scheduleIds) {
+          await fetch(`${API}/api/medication/schedules/${sId}`, { method: "DELETE" });
+        }
+      } else {
+        await fetch(`${API}/api/medication/schedules/${id}`, { method: "DELETE" });
+      }
+      await loadLiveData();
+    } catch (err) {
+      console.error("Failed to remove medicine", err);
+    }
     setMyMedicines(prev => prev.filter(med => med.id !== id));
+  }
+
+  async function handleSaveMedicine() {
+    if (!formName) return alert("Please enter medicine name");
+    if (formTimes.length === 0) return alert("Please select at least one time");
+    
+    try {
+      for (const timeMode of formTimes) {
+        let time_of_day = "08:00";
+        if (timeMode === "morning") time_of_day = "08:00";
+        if (timeMode === "afternoon") time_of_day = "13:00";
+        if (timeMode === "night") time_of_day = "20:00";
+
+        await fetch(`${API}/api/medication/schedules`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            medication_name: formName,
+            dose: formDose,
+            time_of_day,
+            illness_hint: formIllness || "General"
+          })
+        });
+      }
+      setFormName("");
+      setFormDose("");
+      setFormIllness("");
+      setFormTimes([]);
+      setMedTab("list");
+      await loadLiveData();
+    } catch (err) {
+      console.error("Failed to save schedule", err);
+      alert("Error saving medicine");
+    }
   }
 
   // ── Staggered alert reveal animation ──────────────────────────────────────
@@ -899,18 +1013,47 @@ export default function CareWatchDashboard() {
                 value={formDose}
                 onChange={(e) => setFormDose(e.target.value)}
                 placeholder="e.g. 1 tablet, 2 capsules" 
-                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 24, outline: "none", fontSize: 12 }} 
+                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} 
               />
+
+              <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>REQUIRED FOR (ILLNESS)</div>
+              <select 
+                value={formIllness}
+                onChange={(e) => setFormIllness(e.target.value)}
+                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} 
+              >
+                <option value="">Select Illness (Optional)</option>
+                {data.illnesses.map(ill => <option key={ill} value={ill}>{ill}</option>)}
+              </select>
+
+              <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>TIME OF DAY</div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+                {["morning", "afternoon", "night"].map(t => {
+                  const selected = formTimes.includes(t);
+                  return (
+                    <label key={t} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                      <input 
+                        type="checkbox" 
+                        checked={selected}
+                        onChange={() => {
+                          setFormTimes(prev => selected ? prev.filter(x => x !== t) : [...prev, t]);
+                        }}
+                      />
+                      <span style={{ fontSize: 12, textTransform: "capitalize" }}>{t}</span>
+                    </label>
+                  );
+                })}
+              </div>
               
               <div style={{ display: "flex", gap: 12 }}>
                 <button 
-                  onClick={() => alert("Save functionality goes here!")}
+                  onClick={handleSaveMedicine}
                   style={{ background: "#4a9eff15", border: "1px solid #4a9eff40", color: "#4a9eff", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontSize: 10, letterSpacing: 1 }}
                 >
                   SAVE MEDICINE
                 </button>
                 <button 
-                  onClick={() => { setFormName(""); setFormDose(""); }}
+                  onClick={() => { setFormName(""); setFormDose(""); setFormTimes([]); setFormIllness(""); }}
                   style={{ background: "transparent", border: "1px solid #1e2535", color: "#8892a4", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontSize: 10, letterSpacing: 1 }}
                 >
                   CLEAR
