@@ -459,7 +459,7 @@ export default function CareWatchDashboard() {
   // ── Fetch live data from API ───────────────────────────────────────────────
   async function loadLiveData() {
     try {
-      const [latest, risk, week, today, baseline, schedules, fetchedMeals] = await Promise.all([
+      const [latest, risk, week, today, baseline, schedules, fetchedMeals, recommendations] = await Promise.all([
         fetch(`${API}/api/logs/latest`).then((r) => r.json()),
         fetch(`${API}/api/risk`).then((r) => r.json()),
         fetch(`${API}/api/logs/week`).then((r) => r.json()),
@@ -467,6 +467,7 @@ export default function CareWatchDashboard() {
         fetch(`${API}/api/baseline`).then((r) => r.json()),
         fetch(`${API}/api/medication/schedules`).then((r) => r.json()).catch(() => []),
         fetch(`${API}/api/meals`).then((r) => r.json()).catch(() => []),
+        fetch(`${API}/api/medication/recommendations`).then((r) => r.json()).catch(() => ({ illnesses: [] })),
       ]);
 
       setMeals(Array.isArray(fetchedMeals) ? fetchedMeals : []);
@@ -476,6 +477,14 @@ export default function CareWatchDashboard() {
       const weekData   = buildWeekData(Array.isArray(week) ? week : [], risk);
       const safeSchedules = Array.isArray(schedules) ? schedules : [];
       const medication = getMedSchedule(Array.isArray(today) ? today : [], safeSchedules, mode);
+      const illnessesFromApi = Array.isArray(recommendations?.illnesses) ? recommendations.illnesses : [];
+      const illnessesFromSchedules = safeSchedules
+        .map((s) => s?.illness_hint)
+        .filter((ill) => typeof ill === "string" && ill.trim() && ill !== "General");
+      const illnesses = [...new Set([
+        ...illnessesFromApi,
+        ...illnessesFromSchedules,
+      ])];
       
       if (safeSchedules.length > 0) {
         const grouped = {};
@@ -534,7 +543,7 @@ export default function CareWatchDashboard() {
           pill: d.pill,
         })),
         medication,
-        illnesses:   DEMO_NORMAL.illnesses, // Static setup for hackathon, usually fetched from API
+        illnesses:   illnesses.length > 0 ? illnesses : DEMO_NORMAL.illnesses,
         vitals: DEMO_NORMAL.vitals,
       });
     } catch (_e) {
@@ -880,7 +889,6 @@ export default function CareWatchDashboard() {
                 + ADD MEAL
               </button>
             </div>
-          </div>
           </div>
 
           <div style={{ fontSize: 8, color: "#2d3550", letterSpacing: 2, marginTop: 8 }}>DIET & LIFESTYLE SUGGESTIONS</div>

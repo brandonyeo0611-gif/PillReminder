@@ -5,14 +5,18 @@ FastAPI REST API for CareWatch. Exposes logger, baseline, and deviation detector
 to the React frontend. Runs alongside realtime_inference.py (which writes to the
 same SQLite DB). Use --workers 1 (SQLite does not handle concurrent writes).
 
-USAGE:
-  uvicorn app.api:app --reload --port 8000 --workers 1
+USAGE (development):
+    uvicorn app.api:app --reload --port 8000
+
+USAGE (single-process runtime for SQLite):
+    uvicorn app.api:app --port 8000 --workers 1
 """
 
 import os
 import random
 import sqlite3
-from datetime import datetime, timedelta
+import importlib.util
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File
@@ -28,6 +32,8 @@ from src.label_detector import MedicationLabelDetector
 from src.tts import speak
 
 app = FastAPI(title="CareWatch API")
+
+HAS_MULTIPART = importlib.util.find_spec("multipart") is not None
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
@@ -72,6 +78,12 @@ class MedicationEventIn(BaseModel):
     medication_name: str
     detected_at: Optional[datetime] = None
     source: str = "ai"  # "ai" or "manual"
+
+
+def _as_naive_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts
+    return ts.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _inject_demo_data():
@@ -183,7 +195,7 @@ def record_medication_event(payload: MedicationEventIn):
     Record a detected medication intake event from the AI webcam or manual input.
     Updates the medication risk component based on timeliness.
     """
-    ts = payload.detected_at or datetime.utcnow()
+    ts = _as_naive_utc(payload.detected_at) if payload.detected_at else datetime.utcnow()
     result = med_repo.record_event(PERSON, payload.medication_name, ts, payload.source)
     return result
 
@@ -208,15 +220,23 @@ def get_medication_recommendations():
     illnesses = med_ai.guess_illnesses(events)
     return {"illnesses": illnesses}
 
-@app.post("/api/medication/scan")
-async def scan_medication_label(file: UploadFile = File(...)):
-    """
-    Accepts an uploaded image of a medication label.
-    Uses MedicationLabelDetector to extract name and dose.
-    """
-    contents = await file.read()
-    result = label_detector.extract_from_image(contents)
-    return result
+if HAS_MULTIPART:
+    @app.post("/api/medication/scan")
+    async def scan_medication_label(file: UploadFile = File(...)):
+        """
+        Accepts an uploaded image of a medication label.
+        Uses MedicationLabelDetector to extract name and dose.
+        """
+        contents = await file.read()
+        result = label_detector.extract_from_image(contents)
+        return result
+else:
+    @app.post("/api/medication/scan")
+    async def scan_medication_label_unavailable():
+        return {
+            "ok": False,
+            "error": "python-multipart is not installed; label scan endpoint is unavailable",
+        }
 
 # ── Meals ────────────────────────────────────────────────────────────────
 @app.get("/api/meals", response_model=List[MealScheduleOut])

@@ -17,6 +17,7 @@ CONTROLS:
 """
 
 import sys, os, argparse, time, collections, threading
+from datetime import datetime
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import cv2
@@ -44,10 +45,15 @@ ACTIVITY_COLOURS = {
     "eating":     (0,   200, 100),
     "walking":    (0,   160, 255),
     "pill_taking":(0,   255, 255),
+    "pill_intake":(0,   255, 255),
     "lying_down": (200, 100, 200),
     "no_person":  (80,   80,  80),
     "fallen":     (0,    0,  255),  # red for urgent
     "unknown":    (100, 100, 100),
+}
+
+ACTIVITY_ALIASES = {
+    "pill_intake": "pill_taking",
 }
 
 # ── LOAD MODELS ───────────────────────────────────────────────────────────────
@@ -195,6 +201,7 @@ def run(source=0):
     current_confidence = 0.0
     prev_time          = time.time()
     last_live_update   = 0.0
+    last_medication_event_at = {}
 
     print("▶  CareWatch running. Press Q to quit, S to screenshot.")
 
@@ -228,10 +235,37 @@ def run(source=0):
                 top_conf = probs[top_idx].item()
 
             if top_conf >= CONFIDENCE_THRESHOLD:
-                current_activity   = label_classes[top_idx]
+                predicted_activity = label_classes[top_idx]
+                current_activity = ACTIVITY_ALIASES.get(predicted_activity, predicted_activity)
                 current_confidence = top_conf
                 if current_confidence >= 0.85:
                     logger.log(current_activity, current_confidence)
+
+                    if current_activity == "pill_taking":
+                        try:
+                            now_dt = datetime.utcnow()
+                            schedules = med_repo.list_schedules("resident")
+                            nearest = None
+                            nearest_delta = None
+                            for schedule in schedules:
+                                hh, mm = str(schedule.get("time_of_day", "00:00")).split(":")
+                                sched_dt = now_dt.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+                                delta_minutes = abs((now_dt - sched_dt).total_seconds()) / 60.0
+                                window = max(15, int(schedule.get("tolerance_min") or 30))
+                                if delta_minutes <= window:
+                                    if nearest is None or delta_minutes < nearest_delta:
+                                        nearest = schedule
+                                        nearest_delta = delta_minutes
+
+                            if nearest is not None:
+                                med_name = nearest.get("medication_name")
+                                last_ts = last_medication_event_at.get(med_name)
+                                if not last_ts or (now_dt - last_ts).total_seconds() >= 300:
+                                    med_repo.record_event("resident", med_name, now_dt, source="ai")
+                                    last_medication_event_at[med_name] = now_dt
+                                    print(f"✅ medication_event logged: {med_name}")
+                        except Exception as e:
+                            print(f"⚠️ medication_event logging skipped: {e}")
 
                     # --- pattern check: if pill_taking detected, confirm it only if
                     # recent logs within a timeframe also include eating and drinking_water.

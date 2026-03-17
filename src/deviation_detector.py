@@ -26,10 +26,12 @@ Z_THRESHOLD = 2.0
 
 # Weight of each activity in the risk score (pill_taking is most critical)
 ACTIVITY_WEIGHTS = {
-    "drinking_water":  40,
-    "eating":       25,
-    "walking":      20,
-    "sitting_down":       5,
+    "pill_taking": 40,
+    "drinking_water": 20,
+    "eating": 25,
+    "walking": 20,
+    "sitting": 5,
+    "lying_down": 5,
 }
 
 
