@@ -12,10 +12,10 @@ beforeEach(() => {
 });
 afterEach(() => jest.clearAllMocks());
 
-test("renders CAREWATCH branding on load", () => {
+test("renders CARE MEDS branding on load", () => {
   render(<CareWatchDashboard />);
   expect(screen.getByText("CARE")).toBeInTheDocument();
-  expect(screen.getByText("WATCH")).toBeInTheDocument();
+  expect(screen.getByText("MEDS")).toBeInTheDocument();
 });
 
 test("renders in normal mode by default", () => {
@@ -26,7 +26,7 @@ test("renders in normal mode by default", () => {
 test("crisis mode shows alert banner", async () => {
   const user = userEvent.setup();
   render(<CareWatchDashboard />);
-  await user.click(screen.getByText("CRISIS MODE"));
+  await user.click(screen.getByText("MISSED DOSE"));
   await waitFor(() =>
     expect(screen.getByText(/CRITICAL ALERT/i)).toBeInTheDocument()
   );
@@ -35,7 +35,7 @@ test("crisis mode shows alert banner", async () => {
 test("acknowledging crisis banner hides it", async () => {
   const user = userEvent.setup();
   render(<CareWatchDashboard />);
-  await user.click(screen.getByText("CRISIS MODE"));
+  await user.click(screen.getByText("MISSED DOSE"));
   await waitFor(() => screen.getByText(/CRITICAL ALERT/i));
   await user.click(screen.getByText("ACKNOWLEDGE"));
   await waitFor(() =>
@@ -43,10 +43,11 @@ test("acknowledging crisis banner hides it", async () => {
   );
 });
 
-test("fallback to demo data when fetch returns empty", async () => {
+test("fallback to demo data when API fails", async () => {
+  global.fetch = jest.fn(() => Promise.reject(new Error("network down")));
   render(<CareWatchDashboard />);
-  // Demo data has eating as current activity in NORMAL mode
   await waitFor(() =>
-    expect(screen.getByText("EATING")).toBeInTheDocument()
+    expect(screen.getByText(/No live data — API unreachable/i)).toBeInTheDocument()
   );
+  expect(screen.getByText("DEMO")).toBeInTheDocument();
 });
