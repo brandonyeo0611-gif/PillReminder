@@ -36,10 +36,22 @@ class MedicationRepo:
                     dose          TEXT,
                     time_of_day   TEXT    NOT NULL,   -- "HH:MM"
                     tolerance_min INTEGER NOT NULL DEFAULT 30,
-                    illness_hint  TEXT
+                    illness_hint  TEXT,
+                    meal_relation TEXT    NOT NULL DEFAULT 'fixed',  -- 'before', 'after', 'fixed'
+                    meal_name     TEXT                               -- 'Breakfast', 'Lunch', 'Dinner'
                 )
                 """
             )
+            # Migrate existing databases that don't have the new columns
+            for col, definition in [
+                ("meal_relation", "TEXT NOT NULL DEFAULT 'fixed'"),
+                ("meal_name",     "TEXT"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE medication_schedule ADD COLUMN {col} {definition}")
+                except Exception:
+                    pass  # column already exists
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS meal_schedule (
@@ -73,6 +85,18 @@ class MedicationRepo:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS meal_reminder_log (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_id        TEXT    NOT NULL,
+                    schedule_id      INTEGER NOT NULL,
+                    reminder_date    TEXT    NOT NULL,  -- "YYYY-MM-DD"
+                    reminder_count   INTEGER NOT NULL DEFAULT 0,
+                    last_reminded_at TEXT              -- ISO timestamp
+                )
+                """
+            )
             conn.commit()
 
     # ── Schedules CRUD ─────────────────────────────────────────────────────
@@ -95,8 +119,8 @@ class MedicationRepo:
             cur = conn.execute(
                 """
                 INSERT INTO medication_schedule
-                    (person_id, medication_name, dose, time_of_day, tolerance_min, illness_hint)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (person_id, medication_name, dose, time_of_day, tolerance_min, illness_hint, meal_relation, meal_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     person_id,
@@ -105,6 +129,8 @@ class MedicationRepo:
                     payload.time_of_day,
                     payload.tolerance_min,
                     payload.illness_hint,
+                    getattr(payload, "meal_relation", "fixed"),
+                    getattr(payload, "meal_name", None),
                 ),
             )
             schedule_id = cur.lastrowid
@@ -329,6 +355,24 @@ class MedicationRepo:
             "new_risk_score": new_risk,
         }
 
+    # ── Data Retention ────────────────────────────────────────────────────────
+    def purge_old_logs(self, person_id: str, days: int = 30) -> None:
+        """
+        Delete medication_event rows older than `days` days for the given person.
+        Called automatically by check_and_trigger_reminders to enforce the
+        30-day retention policy required by the data privacy plan.
+        """
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                DELETE FROM medication_event
+                WHERE person_id = ? AND timestamp < ?
+                """,
+                (person_id, cutoff),
+            )
+            conn.commit()
+
     # ── Reminder / missed-dose detection ───────────────────────────────────
     def check_and_trigger_reminders(self, person_id: str, speaker=None) -> List[Dict]:
         """
@@ -336,8 +380,11 @@ class MedicationRepo:
         passed without a matching event, create a 'missed' event, bump risk,
         and (optionally) trigger a TTS reminder via `speaker(text)`.
 
+        Also purges medication_event rows older than 30 days (data retention).
+
         Returns a list of dicts describing which schedules triggered.
         """
+        self.purge_old_logs(person_id)  # enforce 30-day retention policy
         now = datetime.utcnow()
         today = date.today()
         triggered: List[Dict] = []
@@ -519,4 +566,163 @@ class MedicationRepo:
                 )
 
         return triggered
+
+    # ── Meal-relative medication reminders ──────────────────────────────────
+    def check_meal_relative_reminders(self, person_id: str, speaker=None) -> List[Dict]:
+        """
+        For each medication_schedule with meal_relation 'before' or 'after':
+
+        - 'before': Fire TTS starting 15 min BEFORE the linked meal time.
+          Repeat every 15 min if no pill_taking detected. Max 3 reminders.
+
+        - 'after': Fire TTS starting AT the linked meal time (i.e. right after eating).
+          Repeat every 15 min if no pill_taking detected. Max 3 reminders.
+
+        Uses meal_reminder_log to track daily reminder counts per schedule.
+        Returns list of triggered schedule dicts.
+        """
+        MAX_REMINDERS = 3
+        INTERVAL_MIN  = 15
+        now   = datetime.utcnow()
+        today = date.today()
+        today_str = today.isoformat()
+        triggered: List[Dict] = []
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Load meal schedules so we know when each meal is
+            meal_rows = conn.execute(
+                "SELECT meal_name, time_of_day FROM meal_schedule WHERE person_id = ?",
+                (person_id,),
+            ).fetchall()
+            meal_times: Dict[str, time] = {
+                r["meal_name"]: _parse_hhmm(r["time_of_day"]) for r in meal_rows
+            }
+
+            # Load medication schedules that are meal-relative
+            schedules = conn.execute(
+                """
+                SELECT * FROM medication_schedule
+                WHERE person_id = ?
+                  AND meal_relation IN ('before', 'after')
+                  AND meal_name IS NOT NULL
+                """,
+                (person_id,),
+            ).fetchall()
+
+            # Check today's pill_taking events (to skip if already taken)
+            pill_events = conn.execute(
+                """
+                SELECT scheduled_id FROM medication_event
+                WHERE person_id = ?
+                  AND date(timestamp) = ?
+                  AND source IN ('ai', 'manual')
+                """,
+                (person_id, today_str),
+            ).fetchall()
+            taken_ids = {r["scheduled_id"] for r in pill_events}
+
+            for s in schedules:
+                sched_id = s["id"]
+
+                # Skip if already taken today
+                if sched_id in taken_ids:
+                    continue
+
+                meal_t = meal_times.get(s["meal_name"])
+                if meal_t is None:
+                    continue  # No meal schedule for this meal name
+
+                meal_dt = datetime.combine(today, meal_t)
+
+                if s["meal_relation"] == "before":
+                    # First reminder fires 15 min BEFORE meal
+                    first_trigger = meal_dt - timedelta(minutes=INTERVAL_MIN)
+                else:  # "after"
+                    # First reminder fires AT meal time
+                    first_trigger = meal_dt
+
+                # Haven't reached the first trigger yet — stay quiet
+                if now < first_trigger:
+                    continue
+
+                # How far past the first trigger are we?
+                minutes_elapsed = (now - first_trigger).total_seconds() / 60
+
+                # Which reminder number should fire? (0-indexed)
+                due_reminder_number = int(minutes_elapsed // INTERVAL_MIN)
+                if due_reminder_number >= MAX_REMINDERS:
+                    continue  # All reminders already exhausted
+
+                # Check/update reminder log
+                log_row = conn.execute(
+                    """
+                    SELECT id, reminder_count, last_reminded_at
+                    FROM meal_reminder_log
+                    WHERE person_id = ? AND schedule_id = ? AND reminder_date = ?
+                    """,
+                    (person_id, sched_id, today_str),
+                ).fetchone()
+
+                sent_count = log_row["reminder_count"] if log_row else 0
+
+                # Already sent as many as are due (or more)
+                if sent_count > due_reminder_number:
+                    continue
+
+                # Check that at least INTERVAL_MIN has passed since the last reminder
+                if log_row and log_row["last_reminded_at"]:
+                    try:
+                        last_dt = datetime.fromisoformat(log_row["last_reminded_at"])
+                        if (now - last_dt).total_seconds() < INTERVAL_MIN * 60 - 30:
+                            continue  # too soon
+                    except Exception:
+                        pass
+
+                # Fire the reminder
+                relation_word = "before" if s["meal_relation"] == "before" else "after"
+                reminder_num  = sent_count + 1
+                message = (
+                    f"Reminder {reminder_num} of {MAX_REMINDERS}: "
+                    f"Please take your {s['medication_name']} {relation_word} your {s['meal_name']}."
+                )
+                if speaker is not None:
+                    try:
+                        speaker(message)
+                    except Exception:
+                        pass
+
+                # Update the log
+                now_iso = now.isoformat()
+                if log_row:
+                    conn.execute(
+                        """
+                        UPDATE meal_reminder_log
+                        SET reminder_count = ?, last_reminded_at = ?
+                        WHERE id = ?
+                        """,
+                        (sent_count + 1, now_iso, log_row["id"]),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO meal_reminder_log
+                            (person_id, schedule_id, reminder_date, reminder_count, last_reminded_at)
+                        VALUES (?, ?, ?, 1, ?)
+                        """,
+                        (person_id, sched_id, today_str, now_iso),
+                    )
+                conn.commit()
+
+                triggered.append({
+                    "schedule_id":   sched_id,
+                    "medication_name": s["medication_name"],
+                    "meal_name":     s["meal_name"],
+                    "meal_relation": s["meal_relation"],
+                    "reminder_number": sent_count + 1,
+                })
+
+        return triggered
+
 

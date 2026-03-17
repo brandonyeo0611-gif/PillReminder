@@ -417,13 +417,35 @@ export default function CareWatchDashboard() {
   const [revealed, setRevealed] = useState([]);
   const [liveData, setLiveData] = useState(INITIAL_LIVE);
   const [injecting,setInjecting]= useState(false);
-  
+
+  // Consent gate — three states: null (not yet mounted), false (need consent), true (granted)
+  // Using useEffect instead of a lazy initializer to avoid SSR hydration mismatch where
+  // the server renders the modal, then the client reads localStorage and hides it immediately.
+  const [consentGiven, setConsentGiven] = useState(null);
+
+  useEffect(() => {
+    setConsentGiven(localStorage.getItem("carewatch_consent") === "granted");
+  }, []);
+
+  function handleConsent() {
+    localStorage.setItem("carewatch_consent", "granted");
+    setConsentGiven(true);
+  }
+
   // Add Medicine Form State
   const [formName, setFormName] = useState("");
   const [formDose, setFormDose] = useState("");
   const [formTimes, setFormTimes] = useState([]);
   const [formIllness, setFormIllness] = useState("");
   const [isScanning, setIsScanning] = useState(false);
+  // meal_relation for add-medicine form: "fixed" | "before" | "after"
+  const [formMealRelation, setFormMealRelation] = useState("fixed");
+  // Default meal times — user can override
+  const [mealTimes, setMealTimes] = useState({
+    Breakfast: "07:30",
+    Lunch:     "12:30",
+    Dinner:    "19:00",
+  });
 
   // Illnesses Interactive State
   const [confirmedIllnesses, setConfirmedIllnesses] = useState([]);
@@ -661,12 +683,30 @@ export default function CareWatchDashboard() {
     if (!formName) return alert("Please enter medicine name");
     if (formTimes.length === 0) return alert("Please select at least one time");
     
+    // Derive (meal_name, time_of_day) pairs from formTimes + formMealRelation
+    const MEAL_MAP = {
+      morning:   { meal: "Breakfast", fixedTime: "08:00" },
+      afternoon: { meal: "Lunch",     fixedTime: "13:00" },
+      night:     { meal: "Dinner",    fixedTime: "20:00" },
+    };
+
     try {
       for (const timeMode of formTimes) {
-        let time_of_day = "08:00";
-        if (timeMode === "morning") time_of_day = "08:00";
-        if (timeMode === "afternoon") time_of_day = "13:00";
-        if (timeMode === "night") time_of_day = "20:00";
+        const { meal, fixedTime } = MEAL_MAP[timeMode] || { meal: null, fixedTime: "08:00" };
+        let time_of_day = fixedTime;
+        let meal_name   = null;
+
+        if (formMealRelation !== "fixed" && meal) {
+          meal_name = meal;
+          const baseMealTime = mealTimes[meal] || fixedTime;
+          const [mh, mm] = baseMealTime.split(":").map(Number);
+          let totalMin  = mh * 60 + mm;
+          if (formMealRelation === "before") totalMin -= 15;  // remind 15 min before meal
+          totalMin = Math.max(0, totalMin);
+          const h = String(Math.floor(totalMin / 60)).padStart(2, "0");
+          const m = String(totalMin % 60).padStart(2, "0");
+          time_of_day = `${h}:${m}`;
+        }
 
         await fetch(`${API}/api/medication/schedules`, {
           method: "POST",
@@ -675,7 +715,9 @@ export default function CareWatchDashboard() {
             medication_name: formName,
             dose: formDose,
             time_of_day,
-            illness_hint: formIllness || "General"
+            illness_hint: formIllness || "General",
+            meal_relation: formMealRelation,
+            meal_name,
           })
         });
       }
@@ -683,6 +725,7 @@ export default function CareWatchDashboard() {
       setFormDose("");
       setFormIllness("");
       setFormTimes([]);
+      setFormMealRelation("fixed");
       setMedTab("list");
       await loadLiveData();
     } catch (err) {
@@ -731,6 +774,91 @@ export default function CareWatchDashboard() {
 
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  // ── Consent gate ── render modal if user hasn't consented yet ──────────────
+  // null  = still mounting (show nothing to avoid any flash)
+  // false = consent required → show modal
+  // true  = consented → show dashboard
+  if (consentGiven === null) return null;
+  if (consentGiven === false) {
+    return (
+      <div style={{
+        background: "#080b12", minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center",
+        fontFamily: "'IBM Plex Mono', 'Courier New', monospace", color: "#c9d1d9",
+        padding: 24,
+      }}>
+        <div style={{
+          background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6,
+          padding: "40px 48px", maxWidth: 540, width: "100%",
+        }}>
+          {/* Logo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 6,
+              background: "linear-gradient(135deg,#ffeb3b,#ff9800)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+            }}>💊</div>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: 1 }}>CARE</span>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#ffeb3b", letterSpacing: 1 }}>MEDS</span>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 2, marginBottom: 8 }}>
+            DATA COLLECTION CONSENT
+          </div>
+          <div style={{ fontSize: 9, color: "#4a5568", letterSpacing: 2, marginBottom: 20 }}>
+            REQUIRED BEFORE SYSTEM ACTIVATION
+          </div>
+
+          <div style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.8, marginBottom: 20 }}>
+            CareWatch monitors the resident using a webcam and AI to track:
+          </div>
+          <ul style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.9, marginBottom: 24, paddingLeft: 20 }}>
+            <li>Body keypoints and activity classification (sitting, eating, pill-taking, etc.)</li>
+            <li>Medication intake and schedule adherence</li>
+            <li>Mealtime patterns and activity risk scores</li>
+          </ul>
+          <div style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.8, marginBottom: 24 }}>
+            <strong style={{ color: "#c9d1d9" }}>No raw video is stored.</strong> Frames are processed in memory and discarded immediately.
+            All data is stored locally using a pseudonymous ID and automatically deleted after 30 days.
+            You may withdraw consent at any time by clearing your browser data.
+          </div>
+
+          <div style={{
+            background: "#0a0f1a", border: "1px solid #1e2535",
+            borderRadius: 4, padding: "12px 16px", marginBottom: 24,
+          }}>
+            <div style={{ fontSize: 9, color: "#ffeb3b", letterSpacing: 2, marginBottom: 6 }}>⚖ PDPA ALIGNED</div>
+            <div style={{ fontSize: 9, color: "#4a5568", lineHeight: 1.7 }}>
+              Data is used solely for health monitoring. Not shared with third parties.
+              Collected under informed consent per the Singapore Personal Data Protection Act.
+            </div>
+          </div>
+
+          <button
+            id="consent-agree-btn"
+            onClick={handleConsent}
+            style={{
+              width: "100%", padding: "12px 0",
+              background: "linear-gradient(135deg,#00e676,#00bcd4)",
+              color: "#000", border: "none", borderRadius: 4,
+              fontFamily: "'IBM Plex Mono','Courier New',monospace",
+              fontWeight: 700, fontSize: 11, letterSpacing: 2, cursor: "pointer",
+            }}
+          >
+            I AGREE — ACTIVATE CAREWATCH
+          </button>
+
+          <div style={{ fontSize: 8, color: "#2d3550", textAlign: "center", marginTop: 12 }}>
+            By clicking above, you confirm that the resident or their authorised caregiver consents to monitoring.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: "#080b12", minHeight: "100vh", fontFamily: mono, color: "#c9d1d9", display: "flex", flexDirection: "column", fontSize: 11 }}>
 
@@ -748,7 +876,7 @@ export default function CareWatchDashboard() {
         <div style={{ display: "flex", gap: 32, alignItems: "center" }}>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2 }}>RESIDENT</div>
-            <div style={{ fontSize: 10, color: "#8892a4" }}>MRS TAN · 74F · LIVING ROOM</div>
+            <div style={{ fontSize: 10, color: "#8892a4" }}>RESIDENT-001 · LIVING ROOM</div>
           </div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 8, color: "#4a5568", letterSpacing: 2 }}>PROFILE</div>
@@ -1136,15 +1264,59 @@ export default function CareWatchDashboard() {
                 })}
               </div>
               
+              {/* ── TAKE WITH FOOD selector ── */}
+              <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1, marginTop: 8 }}>TAKE WITH FOOD</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                {[
+                  { val: "fixed",  label: "Fixed Time" },
+                  { val: "before", label: "Before Food" },
+                  { val: "after",  label: "After Food"  },
+                ].map(({ val, label }) => (
+                  <button
+                    key={val}
+                    onClick={() => setFormMealRelation(val)}
+                    style={{
+                      padding: "6px 14px", borderRadius: 4, fontSize: 10, cursor: "pointer", letterSpacing: 1,
+                      background: formMealRelation === val ? (val === "before" ? "#ff980020" : val === "after" ? "#00e67620" : "#4a9eff20") : "transparent",
+                      border: `1px solid ${formMealRelation === val ? (val === "before" ? "#ff9800" : val === "after" ? "#00e676" : "#4a9eff") : "#1e2535"}`,
+                      color: formMealRelation === val ? (val === "before" ? "#ff9800" : val === "after" ? "#00e676" : "#4a9eff") : "#4a5568",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Meal times (shown when before/after selected) ── */}
+              {formMealRelation !== "fixed" && (
+                <div style={{ background: "#0a0f1a", border: "1px solid #1e2535", borderRadius: 4, padding: "12px 14px", marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: "#2d3550", letterSpacing: 2, marginBottom: 10 }}>
+                    SET MEAL TIMES — system reminds {formMealRelation === "before" ? "15 min BEFORE" : "RIGHT AFTER"} each selected meal
+                  </div>
+                  {Object.entries(mealTimes).map(([meal, t]) => (
+                    <div key={meal} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 10, color: "#8892a4", width: 80 }}>{meal}</span>
+                      <input
+                        type="time"
+                        value={t}
+                        onChange={(e) => setMealTimes(prev => ({ ...prev, [meal]: e.target.value }))}
+                        style={{ background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "4px 8px", borderRadius: 4, fontSize: 11 }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 9, color: "#2d3550", marginTop: 6 }}>Max 3 reminders · every 15 min · stops when pill taken</div>
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 12 }}>
-                <button 
+                <button
                   onClick={handleSaveMedicine}
                   style={{ background: "#4a9eff15", border: "1px solid #4a9eff40", color: "#4a9eff", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontSize: 10, letterSpacing: 1 }}
                 >
                   SAVE MEDICINE
                 </button>
                 <button 
-                  onClick={() => { setFormName(""); setFormDose(""); setFormTimes([]); setFormIllness(""); }}
+                  onClick={() => { setFormName(""); setFormDose(""); setFormTimes([]); setFormIllness(""); setFormMealRelation("fixed"); }}
                   style={{ background: "transparent", border: "1px solid #1e2535", color: "#8892a4", padding: "8px 24px", borderRadius: 4, cursor: "pointer", fontSize: 10, letterSpacing: 1 }}
                 >
                   CLEAR

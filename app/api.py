@@ -49,7 +49,7 @@ detector = DeviationDetector()
 med_repo = MedicationRepo()
 med_ai = MedicationAI()
 label_detector = MedicationLabelDetector()
-PERSON = "resident"
+PERSON = "resident_001"  # pseudonymous ID — real name stored separately
 
 
 class MedicationScheduleIn(BaseModel):
@@ -58,6 +58,8 @@ class MedicationScheduleIn(BaseModel):
     time_of_day: str          # "HH:MM"
     tolerance_min: int = 30
     illness_hint: Optional[str] = None
+    meal_relation: str = "fixed"       # "before", "after", or "fixed"
+    meal_name: Optional[str] = None    # "Breakfast", "Lunch", "Dinner"
 
 
 class MedicationScheduleOut(MedicationScheduleIn):

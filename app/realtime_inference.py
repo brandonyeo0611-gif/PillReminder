@@ -160,6 +160,8 @@ def draw_overlay(frame, activity, confidence, fps):
 
 
 # ── DEVIATION CHECK (runs every 15 min, sends Telegram on YELLOW/RED) ──────────
+PERSON_ID = "resident_001"  # pseudonymous ID — real name stored separately
+
 def deviation_check_loop(med_repo, logger):
     """Background thread: compare today vs baseline, send alerts if needed, and check TTS reminders."""
     iterations = 0
@@ -167,12 +169,13 @@ def deviation_check_loop(med_repo, logger):
         try:
             # Check deviation every 15 mins (15 iterations of 60s)
             if iterations % 15 == 0:
-                result = DeviationDetector().check("resident")
-                AlertSystem().send(result, person_name="Mrs Tan")
+                result = DeviationDetector().check(PERSON_ID)
+                AlertSystem().send(result, person_name="Resident")  # display name, not stored
 
             # Check for missed meds and meals every minute
-            med_repo.check_and_trigger_reminders("resident", speaker=speak)
-            med_repo.check_and_trigger_meal_reminders("resident", speaker=speak, logger=logger)
+            med_repo.check_and_trigger_reminders(PERSON_ID, speaker=speak)
+            med_repo.check_and_trigger_meal_reminders(PERSON_ID, speaker=speak, logger=logger)
+            med_repo.check_meal_relative_reminders(PERSON_ID, speaker=speak)
         except Exception as e:
             print(f"⚠️ Background loop warning: {e}")
 
