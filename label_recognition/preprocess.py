@@ -147,7 +147,9 @@ def parse_prescription_label(ocr_text: str) -> Dict:
         # Pattern 3: "Take 1 tablet 2 times a day" with OCR errors like THES/ADAY
         r"(?:Take|TAKE|TAME|TAXE|TATE)\s+([A-Za-z0-9\s\-\.',']+?(?:times|THES|daily|aday|a\s+day|day))",
         # Pattern 4: "Take 500mg three times ... days"
-        r"(?:Take|TAKE|TAME|TAXE|TATE)\s+([0-9]+\s*mg[\w\s,\.\-—()]*?(?:times|THES|daily|aday|a\s+day)[\w\s,\.\-—()]*?(?:days?)?)",
+        r"(?:Take|TAKE|TAME|TAXE|TATE)\s+([0-9]+\s*(?:mg|ml|mi)[s]?[\w\s,\.\-—()]*?(?:times|THES|daily|aday|a\s+day)[\w\s,\.\-—()]*?(?:days?)?)",
+        # Pattern 4b: "Take 10 ml/mi/ml 3 times a day" (for liquid medications like mixture)
+        r"(?:Take|TAKE|TAME|TAXE|TATE)\s+(\d+\s+(?:ml|mi)[s]?/[s]?\s+\d+\s+(?:times|TIMES|daily|DAILY|day|DAYS)[\w\s,\.\-—]*)",
         # Pattern 5: Fallback: line with dosage + schedule words
         r"(\d+\s+(?:tablet|pill|capsule|tab|cap|ml|mi)[s]?\s+[\w\s,\.\-—]*?(?:morning|moming|evening|night|bedtime|day|times|daily|TIMES|DAILY)[\w\s,\.\-—()]*)",
         # Pattern 6: Generic number + frequency pattern (catches "2 TABLETS 3 TIMES" etc)
