@@ -61,10 +61,7 @@ CREATE TABLE reminder_logs (
     acknowledged BOOLEAN DEFAULT FALSE
 );
 
--- Note: The instruction asked for these indexes
 CREATE INDEX idx_medications_user_id ON medications(user_id);
--- Wait, the instruction specifically said: "Create indexes on: medication_id, user_id, intake_time, schedule_id"
--- medication_id index is already PK on medications, but we should create it on the foreign key columns:
 CREATE INDEX idx_medication_schedules_med_id ON medication_schedules(medication_id);
 CREATE INDEX idx_pill_intake_user_id ON pill_intake_logs(user_id);
 CREATE INDEX idx_pill_intake_med_id ON pill_intake_logs(medication_id);

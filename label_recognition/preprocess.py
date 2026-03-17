@@ -84,12 +84,14 @@ def parse_prescription_label(ocr_text: str) -> Dict:
     med_patterns = [
         # Format: Med name in parentheses (Fusithal) or (Pusithal) - HIGHEST PRIORITY
         r"\(([A-Za-z]+(?:thal|thilic|mycin|cillin)?[A-Za-z]*)\)",
+        # Format: "CHARGOAL-200mG" (all-caps med with dash and dosage)
+        r"([A-Z][A-Z-]+)-(\d+(?:mg|mG|g|ml))",
         # Format: "Hydrocortisone Cream 1%" (med name + form + percentage) - with accent tolerance
         r"([A-Z][a-z]+[éè]?[a-z]*)\s+(?:Cream|Ointment|Gel|Paste|Lotion|Suspension|Solution)\s+\d+%",
         # Format: "Hydrocortisone Cream" or other cream meds (without percentage requirement)
         r"([A-Z][a-z]+[éè]?[a-z]+)\s+(?:Cream|Ointment|Gel|Paste)\s*-",
-        # Format: "URAL POWDER 4G SAC" or "URAL POWDER" with dosage
-        r"([A-Z]{2,}\s+(?:POWDER|PASTE|MIXTURE|SOLUTION|SYRUP|TABLET|CAPSULE|CREAM|OINTMENT)[^\n]{0,50}?(?:SAC|SACHET|PACK|BOX|\d+[a-z]{1,2}|Qty))",
+        # Format: "URAL POWDER 4G SAC" (all-caps med with form, but not "TABLETS" alone which is too generic)
+        r"([A-Z][A-Z]+\s+(?:POWDER|PASTE|MIXTURE|SOLUTION|SYRUP|CREAM|OINTMENT|INHALER)[^\n]{0,50}?(?:SAC|SACHET|PACK|BOX|G|ML|ml|\d+[a-z]{1,2}|Qty))",
         # Format: "Magnesium Trisilicate Mixture" (two+ word medication names)
         r"(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+(?:Mixture|Solution|Syrup|Suspension|Cream|Ointment|Powder|Paste)",
         # Format: Clean Spray/Nasal product name without percentage (prioritize cleaner extraction)
@@ -102,10 +104,12 @@ def parse_prescription_label(ocr_text: str) -> Dict:
         r"([A-Z][a-z]+)\s+\d+\s*(?:mg|MG|%)\s+(?:Cap|Tablet|Tab|Capsule|TABLETS|tablets?|TABS?|eyedrops?)",
         # Format: Full med name before "MG TAB" - "NIFEDIPINE LA 60MG TAB"
         r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)\s+\d+\s*(?:MG|mg|%)\s+(?:TAB|CAP|TABLET|CAPSULE)",
-        # Format: "WORD+CAPSULE/TABLET DIGITS MG" e.g. "AMOXICICAPSULE 500 MG"
-        r"([A-Z][A-Z]+?[aeiou][A-Z]*)\s*(?:CAPSULE|TABLET|CAP|TAB)\s+\d+\s*(?:MG|mg)",
         # Format: Med name with dosage (benzydamine 3mg)
         r"([A-Z][a-z]+(?:amine|dine|pine|olol|statin|sartan)?)\s+(\d+\s*(?:mg|ml|MG|ML|%))",
+        # Format: "WORD CAPSULE" where WORD is likely med name (for image 12: Loperamide CAPSULE)
+        r"^([A-Z][A-Za-z]+)\s+CAPSULE\s+(?:FOR|KEEP)",
+        # Format: "Magnesium Trisilicate Mixture (100ml)" - extend lookahead for full name with parentheses
+        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\s+Mixture|\s+Solution|\s+Syrup|\s+Suspension|\s+Cream|\s+Ointment|\s+Powder|\s+Paste)\s*\([^)]*\))",
     ]
     for pattern in med_patterns:
         med_match = re.search(pattern, ocr_text, re.IGNORECASE)
@@ -132,6 +136,8 @@ def parse_prescription_label(ocr_text: str) -> Dict:
     instr_patterns = [
         # Pattern: "Instill 1 drop/s to both eyes 2 times a day for 2 weeks" (eyedrops - HIGHEST PRIORITY)
         r"(?:Instill|instill)\s+(\d+\s+(?:drop|drrop|drops|dop)[s]?.{0,200}?(?:weeks?|days?))",
+        # Pattern: "Apply X amount/amount 2 times a day" (for creams/topical)
+        r"(?:Apply|apply)\s+(\d+\s+(?:amount|gm|g|drop|drops|puffs?).{0,100}?(?:times|daily|a\s+day|morning|evening)[\w\s,\.\-—()]*)",
         # Pattern: "Spray 3 times a day" (for nasal sprays, etc.)
         r"(?:Spray|spray)\s+(\d+\s+(?:times|once|twice|thrice).{0,100}?(?:day|week|days|weeks))",
         # Pattern 1: "Take 500mg three times (3x) a day for five days" - match across lines to period or "days"
@@ -143,9 +149,9 @@ def parse_prescription_label(ocr_text: str) -> Dict:
         # Pattern 4: "Take 500mg three times ... days"
         r"(?:Take|TAKE|TAME|TAXE|TATE)\s+([0-9]+\s*mg[\w\s,\.\-—()]*?(?:times|THES|daily|aday|a\s+day)[\w\s,\.\-—()]*?(?:days?)?)",
         # Pattern 5: Fallback: line with dosage + schedule words
-        r"(\d+\s+(?:tablet|pill|capsule|tab|cap)[s]?\s+[\w\s,\.\-—]*?(?:morning|moming|evening|night|bedtime|day|times|daily)[\w\s,\.\-—]*)",
-        # Pattern 6: Instructions with "Apply" or "Use" (for topical meds)
-        r"(?:Apply|USE|Use)\s+(.{0,120}?(?:times|daily|once|twice|thrice|morning|evening|night)[\w\s,\.\-—()]*)",
+        r"(\d+\s+(?:tablet|pill|capsule|tab|cap|ml|mi)[s]?\s+[\w\s,\.\-—]*?(?:morning|moming|evening|night|bedtime|day|times|daily|TIMES|DAILY)[\w\s,\.\-—()]*)",
+        # Pattern 6: Generic number + frequency pattern (catches "2 TABLETS 3 TIMES" etc)
+        r"(\d+\s+(?:TABLETS?|CAPSULE?|TABLET|pills?|tab|cap)[s]?\s+\d+\s+(?:TIMES|times|once|twice|thrice|daily|DAILY|day|DAYS)[\w\s,\.\-—]*)",
     ]
     for pattern in instr_patterns:
         instr_match = re.search(pattern, ocr_text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
@@ -153,7 +159,7 @@ def parse_prescription_label(ocr_text: str) -> Dict:
             instr = instr_match.group(1).strip()
             # Clean up extra whitespace, newlines, dashes, and OCR garbage
             instr = re.sub(r'[\s—\-|]+', ' ', instr).strip()
-            instr = instr.replace('moming', 'morning').replace('aday', 'a day').replace('THES', 'TIMES').replace('drrop', 'drop').replace('dop', 'drop').replace('eves', 'eyes')
+            instr = instr.replace('moming', 'morning').replace('aday', 'a day').replace('THES', 'TIMES').replace('drrop', 'drop').replace('dop', 'drop').replace('eves', 'eyes').replace('ttave', 'time').replace('ttimes', 'times')
             # Remove trailing numbers/garbage that are OCR errors (e.g., ", 4" at the end)
             instr = re.sub(r',\s*\d+\s*$', '', instr).strip()
             # Skip very short instructions (likely false matches)
@@ -162,29 +168,25 @@ def parse_prescription_label(ocr_text: str) -> Dict:
                 break
     
     # Patient name — look for name-like pattern at start, or explicit "Name:" label
+    # Only extract if explicitly labeled or in very specific positions
     patient_patterns = [
-        # Format: "Patient Name: Olivia Wilson" (explicit label with colon)
-        r"Patient\s+Name:\s+([A-Z][a-z]+\s+[A-Z][a-z]+)",
-        # Format: First two proper capitalized words after clinic/header info
-        r"(?:(?:The|Clinic|Community|Eye|Hospital)\s+.+?\n)+?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)(?:\s+[A-Z]|\s+\(|\s*$)",
-        # Format: "TAN AH SENG" (all caps, 2-3 word name, single line)
-        r"^([A-Z]{3,}(?:\s+[A-Z]{2,}){1,2})(?:\s+(?:PHARMACY|DOCTOR|DOB|Age|\d)|$)",
-        # Format: "JANE SMITH PHARMACY" (all caps at start, then pharmacy)
-        r"^([A-Z]{2,}(?:\s+[A-Z]{2,})+)\s+(?:PHARMACY|pharmacy|DOCTOR|doctor)",
-        # Format: Explicit label: "Patient|Name|For"
-        r"(?:Patient|Name|For)[\s:]*([A-Z][A-Za-z\s\-]+?)(?=\n|Age|DOB|S\d)",
+        # Format: "Patient Name: Olivia Wilson" (explicit label - HIGHEST PRIORITY)
+        r"Patient\s+Name[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+?)(?:\s*\n|\s+(?:Age|DOB|Date))",
+        # Format: "For: [Name]" or "For [Name]:" (explicit "For" label)
+        r"For[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+?)(?:\s*\n|\s+(?:Age|DOB|Date|—))",
     ]
+    # Exclude medical conditions and other false positives from being extracted as patient names
+    excluded_conditions = ['URINE', 'INFECTIONS', 'DIARRHEA', 'GASTRIC', 'REFLUX', 'BLOATING', 'VOMITING', 'CONSTIPATION', 'HEADACHE', 'FEVER', 'COUGH', 'BLOOD', 'PRESSURE', 'DIABETES']
     for pattern in patient_patterns:
         patient_match = re.search(pattern, ocr_text, re.IGNORECASE | re.MULTILINE)
         if patient_match:
             name = patient_match.group(1).strip()
-            name = re.sub(r"^Sentence\s+", "", name, flags=re.IGNORECASE)
-            # Clean up newlines from multi-line extraction
+            # Remove extra spaces and newlines
             name = re.sub(r'\s*\n\s*', ' ', name).strip()
-            # Remove extra spaces
             name = ' '.join(name.split())
-            # Filter out false positives more strictly
-            if len(name) > 3 and len(name.split()) <= 3 and not any(kw in name.upper() for kw in ['TABLETS', 'TAKE', 'AUGMENTIN', 'ACCORD', 'TACROLIMUS', 'PHARMACY', 'CAPSULE', 'MEDICINE', 'HOSPITAL', 'BLOOD', 'PRESSURE', 'FOR', 'DOSAGE', 'CLINIC', 'STRAITS', 'COMMUNITY', 'EYE', 'AVENUE', 'CLEMENTI']):
+            # Stricter validation: 2-4 words, not in medication keywords or medical conditions
+            med_keywords = ['TABLET', 'CAPSULE', 'SPRAY', 'NASAL', 'CREAM', 'OINTMENT', 'MIXTURE', 'SOLUTION', 'POWDER', 'TAKE', 'APPLY', 'INSTILL', 'FUSITHAL', 'NAZOLIN', 'URAL', 'AUGMENTIN', 'TACROLIMUS', 'BENZYDAMINE', 'HYDROCORTISONE']
+            if len(name) > 4 and 2 <= len(name.split()) <= 4 and not any(kw in name.upper() for kw in med_keywords) and not any(cond in name.upper() for cond in excluded_conditions):
                 result["patient_name"] = name
                 break
     
