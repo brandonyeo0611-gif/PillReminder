@@ -142,9 +142,9 @@ const DEMO_NORMAL = {
     { day: "SUN", risk: 18, pill: true  },
   ],
   medication: [
-    { label: "Morning dose", time: "08:00", done: true,  actual: "08:05", requiredFor: "Hypertension (High BP)" },
-    { label: "Lunch dose",   time: "13:00", done: true,  actual: "13:12", requiredFor: "Diabetes" },
-    { label: "Night dose",   time: "21:00", done: false, actual: null,    requiredFor: "High Cholesterol" },
+    { label: "Morning dose", time: "08:00", done: true,  actual: "08:05", requiredFor: "Hypertension (High BP)", status: "taken" },
+    { label: "Lunch dose",   time: "13:00", done: true,  actual: "13:12", requiredFor: "Diabetes",                status: "taken" },
+    { label: "Night dose",   time: "21:00", done: false, actual: null,    requiredFor: "High Cholesterol",       status: "missed" },
   ],
   illnesses: ["Diabetes", "Hypertension (High BP)", "High Cholesterol"],
   vitals: {
@@ -166,6 +166,7 @@ const DEMO_CRISIS = {
     { time: "+0.8s", label: "LATE BREAKFAST",       sub: "Eating at 09:40 · 70m late vs baseline", color: "#ffeb3b", severity: "warning"  },
     { time: "+1.2s", label: "TRAVEL SPEED",         sub: "Slow gait vs yesterday · −32%",          color: "#ffeb3b", severity: "warning"  },
     { time: "+1.8s", label: "LONG LIE-DOWN",        sub: "Lying down 12:00 · 2h 10m · unusual",   color: "#ff1744", severity: "critical" },
+    { time: "+2.0s", label: "NIGHT DOSE MISSED",    sub: "Night dose at 21:00 was not detected.", color: "#ff1744", severity: "critical" },
   ],
   medication: [
     { label: "Morning dose", time: "08:00", done: false, actual: null, requiredFor: "Hypertension (High BP)" },
@@ -273,7 +274,7 @@ function buildWeekData(logs, riskResult) {
 /**
  * Build medication schedule dynamically from API schedules and today's logs.
  */
-function getMedSchedule(todayLogs, schedules, mode) {
+function getMedSchedule(todayLogs, schedules) {
   let mappedSchedules = [];
   if (!Array.isArray(schedules) || schedules.length === 0) {
     mappedSchedules = [
@@ -286,6 +287,8 @@ function getMedSchedule(todayLogs, schedules, mode) {
   }
   
   const pillLogs = (todayLogs || []).filter((r) => r.activity === "pill_taking");
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
   
   const result = mappedSchedules.map(s => {
     let done = false;
@@ -293,6 +296,8 @@ function getMedSchedule(todayLogs, schedules, mode) {
     
     const schedHour = parseInt(s.time_of_day.split(":")[0]);
     const schedMin = parseInt(s.time_of_day.split(":")[1] || 0);
+    const toleranceMin = Number.isFinite(s.tolerance_min) ? s.tolerance_min : 30;
+    const schedTotalMin = schedHour * 60 + schedMin;
 
     for (const p of pillLogs) {
       const h = p.hour ?? 0;
@@ -303,6 +308,9 @@ function getMedSchedule(todayLogs, schedules, mode) {
         actual = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
       }
     }
+
+    const missed = !done && nowMin > (schedTotalMin + toleranceMin);
+    const status = done ? "taken" : missed ? "missed" : "upcoming";
     
     return {
       id: s.id,
@@ -311,14 +319,11 @@ function getMedSchedule(todayLogs, schedules, mode) {
       label: s.medication_name,
       done,
       actual,
-      requiredFor: s.illness_hint || "General"
+      requiredFor: s.illness_hint || "General",
+      tolerance_min: toleranceMin,
+      status,
     };
   });
-
-  if (mode === "crisis" && result.length > 0) {
-    result[0].done   = false;
-    result[0].actual = null;
-  }
   return result;
 }
 
@@ -410,26 +415,42 @@ function Clock() {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function CareWatchDashboard() {
-  const [mode,        setMode]        = useState("normal");
   const [medTab,      setMedTab]      = useState("schedule");
   const [myMedicines, setMyMedicines] = useState(DEMO_MY_MEDICINES);
-  const [alertAck,    setAlertAck]    = useState(false);
   const [revealed, setRevealed] = useState([]);
   const [liveData, setLiveData] = useState(INITIAL_LIVE);
   const [injecting,setInjecting]= useState(false);
+  const [pendingDoseChange, setPendingDoseChange] = useState(null); // { index, nextDone }
 
-  // Consent gate — three states: null (not yet mounted), false (need consent), true (granted)
-  // Using useEffect instead of a lazy initializer to avoid SSR hydration mismatch where
-  // the server renders the modal, then the client reads localStorage and hides it immediately.
-  const [consentGiven, setConsentGiven] = useState(null);
+  // Consent gate — states: null (mounting), "required", "declined", "granted"
+  // Using useEffect to avoid hydration mismatch.
+  const [consentStatus, setConsentStatus] = useState(null);
 
   useEffect(() => {
-    setConsentGiven(localStorage.getItem("carewatch_consent") === "granted");
+    const v = localStorage.getItem("carewatch_consent");
+    if (v === "granted") setConsentStatus("granted");
+    else if (v === "declined") setConsentStatus("declined");
+    else setConsentStatus("required");
+
+    // Load any local-only saved data (works when backend is not running)
+    try {
+      const lm = JSON.parse(localStorage.getItem("carewatch_local_medicines") || "null");
+      if (Array.isArray(lm) && lm.length > 0) setMyMedicines(lm);
+    } catch (_e) {}
+    try {
+      const lmeals = JSON.parse(localStorage.getItem("carewatch_local_meals") || "null");
+      if (Array.isArray(lmeals) && lmeals.length > 0) setMeals(lmeals);
+    } catch (_e) {}
   }, []);
 
   function handleConsent() {
     localStorage.setItem("carewatch_consent", "granted");
-    setConsentGiven(true);
+    setConsentStatus("granted");
+  }
+
+  function handleDecline() {
+    localStorage.setItem("carewatch_consent", "declined");
+    setConsentStatus("declined");
   }
 
   // Add Medicine Form State
@@ -437,7 +458,6 @@ export default function CareWatchDashboard() {
   const [formDose, setFormDose] = useState("");
   const [formTimes, setFormTimes] = useState([]);
   const [formIllness, setFormIllness] = useState("");
-  const [isScanning, setIsScanning] = useState(false);
   // meal_relation for add-medicine form: "fixed" | "before" | "after"
   const [formMealRelation, setFormMealRelation] = useState("fixed");
   // Default meal times — user can override
@@ -458,10 +478,15 @@ export default function CareWatchDashboard() {
 
   const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  // Use live data when API is reachable; otherwise fall back to demo constants
+  // Use live data when API is reachable; otherwise fall back to demo constants.
+  // In demo mode, if we have a locally overridden medication list in
+  // liveData.medication (from manual toggles), merge that into the demo snapshot
+  // so the UI reflects the change.
   const _rawData = liveData.apiOk
-    ? { ...liveData, mode }
-    : mode === "crisis" ? DEMO_CRISIS : DEMO_NORMAL;
+    ? { ...liveData }
+    : (Array.isArray(liveData.medication) && liveData.medication.length > 0)
+        ? { ...DEMO_NORMAL, medication: liveData.medication }
+        : DEMO_NORMAL;
     
   // Filter out removed illnesses for the entire UI
   const data = {
@@ -475,13 +500,13 @@ export default function CareWatchDashboard() {
 
   // Sparkline data
   const riskData = Array.from({ length: 20 }, (_, i) =>
-    mode === "crisis" ? 40 + i * 1.8 + Math.sin(i) * 5 : 10 + Math.sin(i * 0.8) * 8
+    10 + Math.sin(i * 0.8) * 8
   );
 
   // ── Fetch live data from API ───────────────────────────────────────────────
   async function loadLiveData() {
     try {
-      const [latest, risk, week, today, baseline, schedules, fetchedMeals, recommendations] = await Promise.all([
+      const [latest, risk, week, today, baseline, schedules, fetchedMeals, recommendations, todaySchedule] = await Promise.all([
         fetch(`${API}/api/logs/latest`).then((r) => r.json()),
         fetch(`${API}/api/risk`).then((r) => r.json()),
         fetch(`${API}/api/logs/week`).then((r) => r.json()),
@@ -490,6 +515,7 @@ export default function CareWatchDashboard() {
         fetch(`${API}/api/medication/schedules`).then((r) => r.json()).catch(() => []),
         fetch(`${API}/api/meals`).then((r) => r.json()).catch(() => []),
         fetch(`${API}/api/medication/recommendations`).then((r) => r.json()).catch(() => ({ illnesses: [] })),
+        fetch(`${API}/api/medication/today`).then((r) => r.json()).catch(() => []),
       ]);
 
       setMeals(Array.isArray(fetchedMeals) ? fetchedMeals : []);
@@ -498,7 +524,31 @@ export default function CareWatchDashboard() {
       const ringFormat = timelineToRingFormat(timeline);
       const weekData   = buildWeekData(Array.isArray(week) ? week : [], risk);
       const safeSchedules = Array.isArray(schedules) ? schedules : [];
-      const medication = getMedSchedule(Array.isArray(today) ? today : [], safeSchedules, mode);
+
+      // Build today's medication display from the dedicated /api/medication/today endpoint.
+      // Each entry has: id, medication_name, dose, time_of_day, tolerance_min, illness_hint,
+      //                 meal_relation, meal_name, status ('taken'|'missed'|'upcoming'), actual_time
+      let medication;
+      const safeTodaySchedule = Array.isArray(todaySchedule) ? todaySchedule : [];
+      if (safeTodaySchedule.length > 0) {
+        medication = safeTodaySchedule.map(s => ({
+          id:           s.id,
+          medication_name: s.medication_name,
+          label:        s.medication_name,
+          time:         s.time_of_day,
+          actual:       s.actual_time || null,
+          requiredFor:  s.illness_hint || "General",
+          tolerance_min: s.tolerance_min ?? 30,
+          meal_relation: s.meal_relation || "fixed",
+          meal_name:    s.meal_name || null,
+          status:       s.status,           // 'taken' | 'missed' | 'upcoming'
+          done:         s.status === "taken",
+        }));
+      } else {
+        // No live schedules — fall back to client-side computed schedule
+        medication = getMedSchedule(Array.isArray(today) ? today : [], safeSchedules);
+      }
+
       const illnessesFromApi = Array.isArray(recommendations?.illnesses) ? recommendations.illnesses : [];
       const illnessesFromSchedules = safeSchedules
         .map((s) => s?.illness_hint)
@@ -552,13 +602,39 @@ export default function CareWatchDashboard() {
             }))
         : [];
 
+      // Add synthetic alerts for any taken / missed doses in today's schedule
+      const takenDoseAlerts = (medication || [])
+        .filter((m) => m.status === "taken")
+        .map((m) => ({
+          time:     m.actual || m.time || "--:--",
+          label:    "DOSE TAKEN",
+          sub:      `${m.label || m.medication_name} taken at ${m.actual || m.time}.`,
+          color:    "#00e676",
+          severity: "ok",
+        }));
+
+      const missedDoseAlerts = (medication || [])
+        .filter((m) => m.status === "missed")
+        .map((m) => ({
+          time:     m.time || "--:--",
+          label:    "MISSED DOSE",
+          sub:      `${m.label || m.medication_name} was not detected within the safety window.`,
+          color:    "#ff1744",
+          severity: "critical",
+        }));
+
+      const combinedAlerts =
+        (alertsFromAPI.length > 0 ? alertsFromAPI : DEMO_NORMAL.alerts) // keep existing behaviour
+          .concat(takenDoseAlerts)
+          .concat(missedDoseAlerts);
+
       setLiveData({
         current:     latest?.activity     || "unknown",
         confidence:  latest?.confidence   ?? 0,
         risk:        risk?.risk_score     ?? 0,
         baselineRisk:baseline?.baseline_risk ?? 15,
         apiOk:       true,
-        alerts:      alertsFromAPI.length > 0 ? alertsFromAPI : DEMO_NORMAL.alerts,
+        alerts:      combinedAlerts,
         week:        weekData.map((d) => ({
           day:  d.day.slice(0, 3).toUpperCase(),
           risk: d.risk,
@@ -586,79 +662,72 @@ export default function CareWatchDashboard() {
     }
   }
 
-  // ── Scan Label Integration ───────────────────────────────────────────────
-  async function handleScanLabel(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsScanning(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch(`${API}/api/medication/scan`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.medication_name) setFormName(data.medication_name);
-        if (data.dose) setFormDose(data.dose);
-      } else {
-        console.error("Failed to scan label", await res.text());
-        alert("Failed to scan label. Please check API logs.");
-      }
-    } catch (err) {
-      console.error("Scan error:", err);
-      alert("Error scanning label. Is the backend running?");
-    } finally {
-      setIsScanning(false);
-    }
-    
-    // Reset file input so user can scan same file again if needed
-    e.target.value = "";
-  }
-
-
-
-
   // ── Auto-fetch on mount and every 30s ─────────────────────────────────────
   useEffect(() => {
     loadLiveData();
     const interval = setInterval(loadLiveData, 30_000);
     return () => clearInterval(interval);
-  }, [mode]);
+  }, []);
 
   // ── Manual Override ────────────────────────────────────────────────────────
-  async function toggleMedication(index) {
-    const med = liveData.medication[index];
-    const isNowDone = !med.done;
-    
-    if (isNowDone) {
+  function toggleMedication(index) {
+    const med = data.medication[index];
+    if (!med) return;
+    setPendingDoseChange({ index, nextDone: !med.done });
+  }
+
+  async function applyMedicationChange(index, nextDone) {
+    const med = data.medication[index];
+    if (!med) return;
+
+    const now = new Date();
+    const actualTime = `${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes()
+    ).padStart(2, "0")}`;
+
+    // Optimistically update local schedule so UI shows change immediately,
+    // even in demo mode / when backend is down.
+    setLiveData((prev) => {
+      const baseList =
+        Array.isArray(prev.medication) && prev.medication.length > 0
+          ? prev.medication
+          : data.medication;
+
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const newMedication = baseList.map((m, i) =>
+        i === index
+          ? {
+              ...m,
+              done: nextDone,
+              actual: nextDone ? actualTime : null,
+              status: nextDone
+                ? "taken"
+                : (() => {
+                    const t = (m.time || "00:00").split(":").map(Number);
+                    const schedMin = (t[0] || 0) * 60 + (t[1] || 0);
+                    const tol = Number.isFinite(m.tolerance_min) ? m.tolerance_min : 30;
+                    return nowMin > (schedMin + tol) ? "missed" : "upcoming";
+                  })(),
+            }
+          : m
+      );
+      return { ...prev, medication: newMedication };
+    });
+
+    // If API is live, also tell the backend so risk scores etc. stay in sync.
+    if (liveData.apiOk) {
       try {
-        await fetch(`${API}/api/medication/event`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            medication_name: med.medication_name || med.label,
-            source: "manual"
-          })
-        });
-        await loadLiveData();
+        if (nextDone) {
+          // Persist manual override by schedule id so it survives the next poll.
+          await fetch(`${API}/api/medication/event/${med.id}`, { method: "POST" });
+        } else if (med.id != null) {
+          // Undo today's event for this scheduled dose so refresh doesn't revert the UI.
+          await fetch(`${API}/api/medication/event/${med.id}`, { method: "DELETE" });
+        }
+        setTimeout(() => loadLiveData(), 800);
       } catch (err) {
         console.error("Failed to toggle medication event", err);
       }
-    } else {
-      // Just visually untoggle for now since there's no "undo event" endpoint
-      setLiveData((prev) => {
-        const newMedication = [...prev.medication];
-        const m = { ...newMedication[index] };
-        m.done = false;
-        m.actual = null;
-        newMedication[index] = m;
-        return { ...prev, medication: newMedication };
-      });
     }
   }
 
@@ -677,6 +746,12 @@ export default function CareWatchDashboard() {
       console.error("Failed to remove medicine", err);
     }
     setMyMedicines(prev => prev.filter(med => med.id !== id));
+    try {
+      const next = myMedicines.filter(m => m.id !== id);
+      localStorage.setItem("carewatch_local_medicines", JSON.stringify(next));
+    } catch (_e) {
+      // ignore localStorage failures
+    }
   }
 
   async function handleSaveMedicine() {
@@ -689,6 +764,26 @@ export default function CareWatchDashboard() {
       afternoon: { meal: "Lunch",     fixedTime: "13:00" },
       night:     { meal: "Dinner",    fixedTime: "20:00" },
     };
+
+    // Always update local UI immediately (works even if backend is down)
+    const newLocalMed = {
+      id: Date.now(),
+      name: formName,
+      dosage: formDose || "1 tablet",
+      frequency: `${formTimes.length} time(s)/day`,
+      duration: "ongoing",
+      times: [...formTimes],
+      color: "#4a9eff",
+    };
+    setMyMedicines((prev) => {
+      const next = [newLocalMed, ...prev];
+      try {
+        localStorage.setItem("carewatch_local_medicines", JSON.stringify(next));
+      } catch (_e) {
+        // ignore localStorage failures
+      }
+      return next;
+    });
 
     try {
       for (const timeMode of formTimes) {
@@ -730,7 +825,8 @@ export default function CareWatchDashboard() {
       await loadLiveData();
     } catch (err) {
       console.error("Failed to save schedule", err);
-      alert("Error saving medicine");
+      // Frontend-only mode: backend might be down. Keep local UI update and avoid blocking.
+      setMedTab("list");
     }
   }
 
@@ -750,7 +846,24 @@ export default function CareWatchDashboard() {
       await loadLiveData();
     } catch (err) {
       console.error("Failed to save meal", err);
-      alert("Error saving meal");
+      // Frontend-only mode fallback: store locally so UI works without backend.
+      const localMeal = {
+        id: Date.now(),
+        meal_name: mealFormName,
+        time_of_day: mealFormTime,
+        tolerance_min: 60,
+        localOnly: true,
+      };
+      setMeals((prev) => {
+        const next = [localMeal, ...prev];
+        try {
+          localStorage.setItem("carewatch_local_meals", JSON.stringify(next));
+        } catch (_e) {
+          // ignore
+        }
+        return next;
+      });
+      setMealTimes((prev) => ({ ...prev, [mealFormName]: mealFormTime }));
     }
   }
 
@@ -761,6 +874,16 @@ export default function CareWatchDashboard() {
     } catch (err) {
       console.error("Failed to remove meal", err);
     }
+    // Also remove from local list (for frontend-only mode)
+    setMeals((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      try {
+        localStorage.setItem("carewatch_local_meals", JSON.stringify(next));
+      } catch (_e) {
+        // ignore
+      }
+      return next;
+    });
   }
 
   // ── Staggered alert reveal animation ──────────────────────────────────────
@@ -769,18 +892,19 @@ export default function CareWatchDashboard() {
     data.alerts.forEach((_, i) => {
       setTimeout(() => setRevealed((r) => [...r, i]), i * 300 + 100);
     });
-  }, [mode, liveData.apiOk]);
+  }, [liveData.apiOk]);
 
 
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  // ── Consent gate ── render modal if user hasn't consented yet ──────────────
-  // null  = still mounting (show nothing to avoid any flash)
-  // false = consent required → show modal
-  // true  = consented → show dashboard
-  if (consentGiven === null) return null;
-  if (consentGiven === false) {
+  // ── Consent gate ── hard block until consent is granted ───────────────────
+  // null      = still mounting (show nothing to avoid any flash)
+  // "required"= consent required → show modal with Accept/Decline
+  // "declined"= blocked → show locked screen until Accept
+  // "granted" = show dashboard
+  if (consentStatus === null) return null;
+  if (consentStatus === "required") {
     return (
       <div style={{
         background: "#080b12", minHeight: "100vh", display: "flex",
@@ -851,6 +975,27 @@ export default function CareWatchDashboard() {
             I AGREE — ACTIVATE CAREWATCH
           </button>
 
+          <button
+            id="consent-decline-btn"
+            onClick={handleDecline}
+            style={{
+              width: "100%",
+              padding: "10px 0",
+              marginTop: 10,
+              background: "transparent",
+              color: "#ff6b6b",
+              border: "1px solid #ff174460",
+              borderRadius: 4,
+              fontFamily: "'IBM Plex Mono','Courier New',monospace",
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: 2,
+              cursor: "pointer",
+            }}
+          >
+            I DO NOT AGREE — EXIT
+          </button>
+
           <div style={{ fontSize: 8, color: "#2d3550", textAlign: "center", marginTop: 12 }}>
             By clicking above, you confirm that the resident or their authorised caregiver consents to monitoring.
           </div>
@@ -859,8 +1004,143 @@ export default function CareWatchDashboard() {
     );
   }
 
+  if (consentStatus === "declined") {
+    return (
+      <div style={{
+        background: "#080b12", minHeight: "100vh", display: "flex",
+        alignItems: "center", justifyContent: "center",
+        fontFamily: "'IBM Plex Mono', 'Courier New', monospace", color: "#c9d1d9",
+        padding: 24,
+      }}>
+        <div style={{
+          background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6,
+          padding: "40px 48px", maxWidth: 540, width: "100%",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: 6,
+              background: "linear-gradient(135deg,#ff1744,#ff9800)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+            }}>🔒</div>
+            <div>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#fff", letterSpacing: 1 }}>CARE</span>
+              <span style={{ fontWeight: 700, fontSize: 16, color: "#ffeb3b", letterSpacing: 1 }}>MEDS</span>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: 2, marginBottom: 10 }}>
+            ACCESS DISABLED
+          </div>
+          <div style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.8, marginBottom: 18 }}>
+            You declined data collection consent. For safety and compliance, CareMeds features are locked until consent is granted.
+          </div>
+
+          <button
+            id="consent-accept-from-declined-btn"
+            onClick={handleConsent}
+            style={{
+              width: "100%", padding: "12px 0",
+              background: "linear-gradient(135deg,#00e676,#00bcd4)",
+              color: "#000", border: "none", borderRadius: 4,
+              fontFamily: "'IBM Plex Mono','Courier New',monospace",
+              fontWeight: 700, fontSize: 11, letterSpacing: 2, cursor: "pointer",
+            }}
+          >
+            ACCEPT CONSENT — UNLOCK
+          </button>
+
+          <div style={{ fontSize: 8, color: "#2d3550", textAlign: "center", marginTop: 12 }}>
+            If you are not the authorised caregiver, please close this page.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: "#080b12", minHeight: "100vh", fontFamily: mono, color: "#c9d1d9", display: "flex", flexDirection: "column", fontSize: 11 }}>
+
+      {/* ── Confirm status change modal ── */}
+      {pendingDoseChange && (() => {
+        const med = data.medication[pendingDoseChange.index];
+        if (!med) return null;
+        const nextDone = pendingDoseChange.nextDone;
+        const name = med.medication_name || med.label || "this dose";
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.65)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 9999,
+              padding: 24,
+            }}
+            onClick={() => setPendingDoseChange(null)}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                background: "#0d1117",
+                border: "1px solid #1e2535",
+                borderRadius: 6,
+                padding: "22px 22px",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ fontSize: 10, color: "#2d3550", letterSpacing: 2, marginBottom: 8 }}>CONFIRM ACTION</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 10 }}>
+                {nextDone ? "Mark dose as TAKEN?" : "Mark dose as NOT taken?"}
+              </div>
+              <div style={{ fontSize: 10, color: "#8892a4", lineHeight: 1.6, marginBottom: 16 }}>
+                You are about to {nextDone ? "mark" : "unmark"} <strong style={{ color: "#c9d1d9" }}>{name}</strong>.
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setPendingDoseChange(null)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #1e2535",
+                    color: "#8892a4",
+                    padding: "8px 14px",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontFamily: mono,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                  }}
+                >
+                  CANCEL
+                </button>
+                <button
+                  onClick={async () => {
+                    const { index, nextDone } = pendingDoseChange;
+                    setPendingDoseChange(null);
+                    await applyMedicationChange(index, nextDone);
+                  }}
+                  style={{
+                    background: nextDone ? "linear-gradient(135deg,#00e676,#00bcd4)" : "linear-gradient(135deg,#ff1744,#ff9800)",
+                    border: "none",
+                    color: "#000",
+                    padding: "8px 14px",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontFamily: mono,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                    fontWeight: 700,
+                  }}
+                >
+                  CONFIRM
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── TOPBAR ── */}
       <div style={{ borderBottom: "1px solid #1e2535", padding: "0 16px", height: 44, display: "flex", alignItems: "center", justifyContent: "space-between", background: "#080b12" }}>
@@ -885,22 +1165,6 @@ export default function CareWatchDashboard() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {["normal", "crisis"].map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMode(m); setAlertAck(false); }}
-              style={{
-                background:   mode === m ? (m === "crisis" ? "#ff1744" : "#00e676") : "transparent",
-                color:        mode === m ? "#000" : "#4a5568",
-                border:       `1px solid ${m === "crisis" ? "#ff174440" : "#00e67640"}`,
-                borderRadius: 2, padding: "3px 8px", fontSize: 8,
-                letterSpacing: 2, cursor: "pointer", fontFamily: mono,
-              }}
-            >
-              {m === "normal" ? "NORMAL DAY" : "MISSED DOSE"}
-            </button>
-          ))}
-
           {/* Live indicator */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", background: "#0d1117", borderRadius: 10, border: "1px solid #1e2535" }}>
             <div style={{ width: 5, height: 5, borderRadius: "50%", background: liveData.apiOk ? "#00e676" : "#546e7a", animation: liveData.apiOk ? "pulse 2s infinite" : "none" }} />
@@ -913,25 +1177,6 @@ export default function CareWatchDashboard() {
           <Clock />
         </div>
       </div>
-
-      {/* ── CRISIS BANNER ── */}
-      {mode === "crisis" && !alertAck && (
-        <div style={{ background: "linear-gradient(135deg,#1a0a0a,#2d0f0f)", borderBottom: "1px solid #ff1744", padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 14 }}>🚨</span>
-            <div>
-              <span style={{ color: "#ff6b6b", fontWeight: 700, fontSize: 10, letterSpacing: 2 }}>CRITICAL ALERT — MRS TAN</span>
-              <span style={{ color: "#ff9999", fontSize: 9, marginLeft: 12 }}>Pill taking not detected · Expected 08:45 · Now 2h 15m overdue</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setAlertAck(true)}
-            style={{ background: "transparent", border: "1px solid #ff174460", color: "#ff6b6b", padding: "3px 10px", fontSize: 8, letterSpacing: 2, cursor: "pointer", fontFamily: mono, borderRadius: 2 }}
-          >
-            ACKNOWLEDGE
-          </button>
-        </div>
-      )}
 
       {/* ── Demo data banner ── */}
       {!liveData.apiOk && (
@@ -946,6 +1191,31 @@ export default function CareWatchDashboard() {
           </button>
         </div>
       )}
+
+      {/* ── MISSED DOSE BANNER (if any) ── */}
+      {data.medication.some((m) => m.status === "missed") && (() => {
+        const missed = data.medication.filter((m) => m.status === "missed");
+        const names = [...new Set(missed.map((m) => m.label || m.medication_name))];
+        const summary =
+          names.length === 1
+            ? names[0]
+            : names.length === 2
+              ? `${names[0]} and ${names[1]}`
+              : `${names[0]}, ${names[1]} +${names.length - 2} more`;
+        return (
+          <div style={{ background: "linear-gradient(135deg,#1a0a0a,#2d0f0f)", borderBottom: "1px solid #ff1744", padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 14 }}>🚨</span>
+              <div>
+                <span style={{ color: "#ff6b6b", fontWeight: 700, fontSize: 10, letterSpacing: 2 }}>MISSED MEDICATION DETECTED</span>
+                <span style={{ color: "#ff9999", fontSize: 9, marginLeft: 12 }}>
+                  Missed: {summary}. Not detected within the safety window — please check on the resident.
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── 3-PANEL LAYOUT ── */}
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "300px 1fr 280px", overflow: "hidden" }}>
@@ -1105,9 +1375,9 @@ export default function CareWatchDashboard() {
           {medTab === "schedule" && (
             <div style={{ width: "80%", display: "flex", flexDirection: "column", gap: 12 }}>
               {data.medication.map((med, i) => {
-              const isMissed = !med.done && mode === "crisis";
-              const isTaken = med.done;
-              const isUpcoming = !med.done && !isMissed;
+              const isMissed = med.status === "missed";
+              const isTaken = med.status === "taken";
+              const isUpcoming = med.status === "upcoming";
               
               let statusColor = "#8892a4";
               if (isMissed) statusColor = "#ff1744";
@@ -1115,27 +1385,58 @@ export default function CareWatchDashboard() {
               if (isUpcoming) statusColor = "#ffeb3b";
 
               return (
-                <div 
-                  key={i} 
+                <div
+                  key={i}
                   onClick={() => toggleMedication(i)}
-                  style={{ 
-                    display: "flex", alignItems: "center", gap: 16, padding: "12px", 
-                    background: `${statusColor}10`, border: `1px solid ${statusColor}40`, 
-                    borderRadius: 6, cursor: "pointer", transition: "all 0.2s" 
+                  style={{
+                    display: "flex", alignItems: "center", gap: 16,
+                    padding: isMissed ? "14px 12px" : "12px",
+                    background: isMissed
+                      ? "linear-gradient(135deg, #1a0408, #2d0a12)"
+                      : `${statusColor}10`,
+                    border: `${isMissed ? "2px" : "1px"} solid ${statusColor}${isMissed ? "" : "40"}`,
+                    borderRadius: 6, cursor: "pointer", transition: "all 0.2s",
+                    boxShadow: isMissed ? `0 0 12px ${statusColor}25` : "none",
+                    position: "relative", overflow: "hidden",
                   }}
-                  onMouseOver={(e) => { e.currentTarget.style.background = `${statusColor}20`; }}
-                  onMouseOut={(e) => { e.currentTarget.style.background = `${statusColor}10`; }}
+                  onMouseOver={(e) => { e.currentTarget.style.background = isMissed ? "linear-gradient(135deg,#250812,#3d1020)" : `${statusColor}20`; }}
+                  onMouseOut={(e) => { e.currentTarget.style.background = isMissed ? "linear-gradient(135deg,#1a0408,#2d0a12)" : `${statusColor}10`; }}
                 >
-                  <div style={{ fontSize: 24, flexShrink: 0 }}>
-                    {isMissed ? "❌" : isTaken ? "✅" : "⏳"}
+                  {/* Left accent bar for missed doses */}
+                  {isMissed && (
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: "#ff1744" }} />
+                  )}
+                  <div style={{ fontSize: 28, flexShrink: 0, marginLeft: isMissed ? 4 : 0 }}>
+                    {isMissed ? "🚨" : isTaken ? "✅" : "⏳"}
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: statusColor }}>{med.label.toUpperCase()}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: statusColor }}>{med.label.toUpperCase()}</span>
+                        {isMissed && (
+                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: 1, color: "#ff1744", background: "#ff174420", border: "1px solid #ff174460", padding: "1px 6px", borderRadius: 10 }}>MISSED</span>
+                        )}
+                      </div>
                       <span style={{ fontSize: 12, color: "#c9d1d9", fontWeight: 700 }}>{med.time}</span>
                     </div>
                     <div style={{ fontSize: 10, color: "#8892a4", marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-                      <span>{med.actual ? `Taken at ${med.actual}` : `Scheduled for ${med.time}`}</span>
+                      <span>
+                        {isTaken
+                          ? `✅ Taken at ${med.actual}`
+                          : isMissed
+                          ? `❌ Missed — scheduled for ${med.time}`
+                          : `⏳ Upcoming — scheduled for ${med.time}`}
+                        {med.meal_relation && med.meal_relation !== "fixed" && (
+                          <span style={{
+                            marginLeft: 8, fontSize: 9, padding: "1px 6px", borderRadius: 10,
+                            background: med.meal_relation === "before" ? "#ff980015" : "#00e67615",
+                            border: `1px solid ${med.meal_relation === "before" ? "#ff980040" : "#00e67640"}`,
+                            color: med.meal_relation === "before" ? "#ff9800" : "#00e676",
+                          }}>
+                            {med.meal_relation === "before" ? "Before" : "After"} {med.meal_name || "food"}
+                          </span>
+                        )}
+                      </span>
                       <span style={{ fontSize: 8, color: "#4a5568", fontStyle: "italic", textDecoration: "underline" }}>Click to change status</span>
                     </div>
                     <div style={{ fontSize: 9, color: "#4a9eff", marginTop: 4, letterSpacing: 1 }}>
@@ -1188,35 +1489,6 @@ export default function CareWatchDashboard() {
           {/* Add Medicine Form View */}
           {medTab === "add" && (
             <div style={{ width: "80%", background: "#0d1117", border: "1px solid #1e2535", borderRadius: 6, padding: "24px", position: "relative" }}>
-              <div style={{ position: "absolute", top: 24, right: 24 }}>
-                <input 
-                  type="file" 
-                  id="label-upload" 
-                  accept="image/*" 
-                  style={{ display: "none" }} 
-                  onChange={handleScanLabel}
-                />
-                <label 
-                  htmlFor="label-upload"
-                  style={{ 
-                    background: isScanning ? "#ff980020" : "#ff980015", 
-                    border: `1px solid ${isScanning ? "#ff980080" : "#ff980040"}`, 
-                    color: "#ff9800", 
-                    padding: "8px 16px", 
-                    borderRadius: 4, 
-                    cursor: isScanning ? "wait" : "pointer", 
-                    fontWeight: 700, 
-                    fontSize: 10, 
-                    letterSpacing: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}
-                >
-                  {isScanning ? "⏳ SCANNING..." : "📷 SCAN LABEL"}
-                </label>
-              </div>
-
               <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>MEDICINE NAME *</div>
               <input 
                 type="text" 
@@ -1236,14 +1508,13 @@ export default function CareWatchDashboard() {
               />
 
               <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>REQUIRED FOR (ILLNESS)</div>
-              <select 
+              <input
+                type="text"
                 value={formIllness}
                 onChange={(e) => setFormIllness(e.target.value)}
-                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }} 
-              >
-                <option value="">Select Illness (Optional)</option>
-                {data.illnesses.map(ill => <option key={ill} value={ill}>{ill}</option>)}
-              </select>
+                placeholder="e.g. Diabetes, Hypertension, Augmentin course"
+                style={{ width: "100%", background: "#080b12", border: "1px solid #1e2535", color: "#c9d1d9", padding: "10px", borderRadius: 4, marginBottom: 16, outline: "none", fontSize: 12 }}
+              />
 
               <div style={{ fontSize: 10, color: "#8892a4", marginBottom: 8, letterSpacing: 1 }}>TIME OF DAY</div>
               <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
@@ -1331,11 +1602,15 @@ export default function CareWatchDashboard() {
             <div style={{ display: "flex", gap: 10 }}>
               {data.week.map((d, i) => {
                 const c = d.risk <= 30 ? "#00e676" : d.risk <= 60 ? "#ffeb3b" : "#ff1744";
+                // Show — for days with no activity data at all (DB empty / not yet collecting)
+                const pillIcon = d.events === 0
+                  ? <span style={{ color: "#3a4560", fontSize: 12 }}>—</span>
+                  : d.pill ? "✅" : "❌";
                 return (
                   <div key={i} style={{ flex: 1, textAlign: "center", background: "#0d1117", padding: "8px 0", borderRadius: 4, border: "1px solid #1e2535" }}>
                     <div style={{ fontSize: 9, color: "#8892a4", marginBottom: 6 }}>{d.day}</div>
-                    <div style={{ fontSize: 16 }}>{d.pill ? "✅" : "❌"}</div>
-                    <div style={{ fontSize: 8, color: c, marginTop: 6, fontWeight: 700 }}>RISK: {d.risk}</div>
+                    <div style={{ fontSize: 16 }}>{pillIcon}</div>
+                    <div style={{ fontSize: 8, color: d.events === 0 ? "#3a4560" : c, marginTop: 6, fontWeight: 700 }}>{d.events === 0 ? "NO DATA" : `RISK: ${d.risk}`}</div>
                   </div>
                 );
               })}
@@ -1371,7 +1646,7 @@ export default function CareWatchDashboard() {
           {/* Alert feed */}
           <div style={{ flex: 1 }}>
             {data.alerts.map((a, i) => (
-              <AlertRow key={`${mode}-${i}`} alert={a} revealed={revealed.includes(i)} />
+              <AlertRow key={`alert-${i}`} alert={a} revealed={revealed.includes(i)} />
             ))}
           </div>
 

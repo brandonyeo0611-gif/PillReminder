@@ -20,9 +20,9 @@ test("renders consent modal before dashboard on first load", () => {
   render(<CareWatchDashboard />);
   expect(screen.getByText("DATA COLLECTION CONSENT")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /I AGREE/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /I DO NOT AGREE/i })).toBeInTheDocument();
   // Dashboard-specific controls should NOT be visible before consent
-  expect(screen.queryByText("NORMAL DAY")).not.toBeInTheDocument();
-  expect(screen.queryByText("MISSED DOSE")).not.toBeInTheDocument();
+  expect(screen.queryByText(/EVENT FEED/i)).not.toBeInTheDocument();
 });
 
 test("dashboard renders after user clicks I Agree", async () => {
@@ -40,6 +40,18 @@ test("consent is remembered in localStorage", async () => {
   render(<CareWatchDashboard />);
   await user.click(screen.getByRole("button", { name: /I AGREE/i }));
   expect(localStorage.getItem("carewatch_consent")).toBe("granted");
+});
+
+test("decline locks access until user accepts", async () => {
+  const user = userEvent.setup();
+  render(<CareWatchDashboard />);
+  await user.click(screen.getByRole("button", { name: /I DO NOT AGREE/i }));
+  expect(localStorage.getItem("carewatch_consent")).toBe("declined");
+  expect(screen.getByText(/ACCESS DISABLED/i)).toBeInTheDocument();
+  expect(screen.queryByText(/EVENT FEED/i)).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: /ACCEPT CONSENT/i }));
+  await waitFor(() => expect(screen.getByText("CARE")).toBeInTheDocument());
 });
 
 test("skips consent modal if already consented (localStorage set)", () => {
@@ -63,29 +75,9 @@ test("renders CARE MEDS branding on load", () => {
   expect(screen.getByText("MEDS")).toBeInTheDocument();
 });
 
-test("renders in normal mode by default", () => {
+test("renders event feed after consent", () => {
   renderWithConsent();
-  expect(screen.getByText("NORMAL DAY")).toBeInTheDocument();
-});
-
-test("crisis mode shows alert banner", async () => {
-  const user = userEvent.setup();
-  renderWithConsent();
-  await user.click(screen.getByText("MISSED DOSE"));
-  await waitFor(() =>
-    expect(screen.getByText(/CRITICAL ALERT/i)).toBeInTheDocument()
-  );
-});
-
-test("acknowledging crisis banner hides it", async () => {
-  const user = userEvent.setup();
-  renderWithConsent();
-  await user.click(screen.getByText("MISSED DOSE"));
-  await waitFor(() => screen.getByText(/CRITICAL ALERT/i));
-  await user.click(screen.getByText("ACKNOWLEDGE"));
-  await waitFor(() =>
-    expect(screen.queryByText(/CRITICAL ALERT/i)).not.toBeInTheDocument()
-  );
+  expect(screen.getByText(/EVENT FEED/i)).toBeInTheDocument();
 });
 
 test("fallback to demo data when API fails", async () => {

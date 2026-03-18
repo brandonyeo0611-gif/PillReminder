@@ -97,6 +97,18 @@ class MedicationRepo:
                 )
                 """
             )
+            # medication_log stores every confirmed intake event (ai or manual)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS medication_log (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    person_id       TEXT    NOT NULL,
+                    medication_name TEXT    NOT NULL,
+                    detected_at     TEXT    NOT NULL,   -- ISO timestamp
+                    source          TEXT    NOT NULL DEFAULT 'ai'  -- 'ai' | 'manual'
+                )
+                """
+            )
             conn.commit()
 
     # ── Schedules CRUD ─────────────────────────────────────────────────────
@@ -196,6 +208,159 @@ class MedicationRepo:
                 (person_id, schedule_id),
             )
             conn.commit()
+
+    def get_today_schedule(self, person_id: str) -> List[Dict]:
+        """
+        Return every scheduled dose for today, each enriched with:
+          - status: 'taken' | 'missed' | 'upcoming'
+          - actual_time: HH:MM when the dose was recorded (or None)
+        A dose is 'taken'   if a medication_log entry exists within tolerance window.
+        A dose is 'missed'  if the window has passed and nothing was logged.
+        A dose is 'upcoming' if the window has not started yet.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        now_min = now.hour * 60 + now.minute
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            schedules = conn.execute(
+                """
+                SELECT * FROM medication_schedule
+                WHERE person_id = ?
+                ORDER BY time_of_day ASC, id ASC
+                """,
+                (person_id,),
+            ).fetchall()
+
+            today_logs = conn.execute(
+                """
+                SELECT scheduled_id, medication_name, timestamp AS detected_at, source
+                FROM medication_event
+                WHERE person_id = ? AND date(timestamp) = ?
+                """,
+                (person_id, today),
+            ).fetchall()
+
+        results = []
+        for s in schedules:
+            s = dict(s)
+            tolerance = s.get("tolerance_min") or 30
+            h, m = map(int, s["time_of_day"].split(":"))
+            sched_min = h * 60 + m
+            window_start = sched_min - tolerance
+            window_end   = sched_min + tolerance
+
+            # Prefer schedule-id matching so manual overrides persist.
+            actual_time = None
+            for log in today_logs:
+                try:
+                    if log["scheduled_id"] == s["id"]:
+                        lt = datetime.fromisoformat(log["detected_at"])
+                        actual_time = lt.strftime("%H:%M")
+                        break
+                except Exception:
+                    continue
+
+            # Fallback: name + tolerance window matching (for AI events without scheduled_id)
+            if actual_time is None:
+                for log in today_logs:
+                    try:
+                        lt = datetime.fromisoformat(log["detected_at"])
+                        log_min = lt.hour * 60 + lt.minute
+                        name_match = (
+                            (log["medication_name"] or "").lower().strip()
+                            == (s["medication_name"] or "").lower().strip()
+                        )
+                        if name_match and window_start <= log_min <= window_end:
+                            actual_time = lt.strftime("%H:%M")
+                            break
+                    except Exception:
+                        continue
+
+            if actual_time:
+                status = "taken"
+            elif now_min > window_end:
+                status = "missed"
+            else:
+                status = "upcoming"
+
+            results.append({
+                **s,
+                "status": status,
+                "actual_time": actual_time,
+            })
+
+        return results
+
+    def delete_today_event(self, person_id: str, scheduled_id: int) -> None:
+        """
+        Delete any medication_event rows for the given schedule_id for "today".
+        This supports manual undo from the dashboard.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                DELETE FROM medication_event
+                WHERE person_id = ?
+                  AND scheduled_id = ?
+                  AND date(timestamp) = ?
+                """,
+                (person_id, scheduled_id, today),
+            )
+            conn.commit()
+
+    def record_event_for_schedule(
+        self,
+        person_id: str,
+        scheduled_id: int,
+        ts: Optional[datetime] = None,
+        source: str = "manual",
+    ) -> Dict:
+        """
+        Record an intake event explicitly tied to a schedule id.
+        This is used for manual overrides so the backend "today schedule" reflects it.
+        """
+        ts = ts or datetime.now()
+        ts_iso = ts.isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            sched = conn.execute(
+                """
+                SELECT * FROM medication_schedule
+                WHERE person_id = ? AND id = ?
+                """,
+                (person_id, scheduled_id),
+            ).fetchone()
+            if not sched:
+                return {"ok": False, "error": "schedule_not_found"}
+
+            sched = dict(sched)
+            # For manual overrides, treat as on-time to avoid penalizing caregiver corrections.
+            conn.execute(
+                """
+                INSERT INTO medication_event
+                    (person_id, medication_name, timestamp, scheduled_id, on_time, source)
+                VALUES (?, ?, ?, ?, 1, ?)
+                """,
+                (person_id, sched["medication_name"], ts_iso, scheduled_id, source),
+            )
+            conn.commit()
+
+        # Lower medication risk slightly on confirmed intake
+        current_risk = self._get_or_init_risk(person_id)
+        new_risk = self._set_risk(person_id, max(0, current_risk - 5))
+        return {
+            "ok": True,
+            "person_id": person_id,
+            "scheduled_id": scheduled_id,
+            "medication_name": sched["medication_name"],
+            "timestamp": ts_iso,
+            "new_risk_score": new_risk,
+        }
 
     # ── Events + Risk ──────────────────────────────────────────────────────
     def _get_or_init_risk(self, person_id: str) -> int:

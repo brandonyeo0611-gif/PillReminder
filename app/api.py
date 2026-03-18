@@ -191,15 +191,46 @@ def delete_schedule(schedule_id: int):
     return {"ok": True}
 
 
+@app.get("/api/medication/today")
+def get_today_schedule():
+    """
+    Return all of today's scheduled doses enriched with status:
+      'taken'    – logged within the tolerance window
+      'missed'   – window passed, no log found
+      'upcoming' – window has not started yet
+    """
+    return med_repo.get_today_schedule(PERSON)
+
+
 @app.post("/api/medication/event")
 def record_medication_event(payload: MedicationEventIn):
     """
     Record a detected medication intake event from the AI webcam or manual input.
     Updates the medication risk component based on timeliness.
     """
-    ts = _as_naive_utc(payload.detected_at) if payload.detected_at else datetime.utcnow()
+    # Use local time for "today" consistency with schedule status computation.
+    ts = _as_naive_utc(payload.detected_at) if payload.detected_at else datetime.now()
     result = med_repo.record_event(PERSON, payload.medication_name, ts, payload.source)
     return result
+
+
+@app.post("/api/medication/event/{scheduled_id}")
+def record_medication_event_for_schedule(scheduled_id: int):
+    """
+    Manual override: mark a specific scheduled dose as taken (by schedule id).
+    This persists across live refreshes because /api/medication/today matches by scheduled_id.
+    """
+    return med_repo.record_event_for_schedule(PERSON, scheduled_id, ts=datetime.now(), source="manual")
+
+
+@app.delete("/api/medication/event/{scheduled_id}")
+def undo_medication_event(scheduled_id: int):
+    """
+    Remove today's medication_event for a specific schedule id.
+    Used by the dashboard for manual "mark as not taken" undo.
+    """
+    med_repo.delete_today_event(PERSON, scheduled_id)
+    return {"ok": True}
 
 
 @app.post("/api/medication/check-reminders")
